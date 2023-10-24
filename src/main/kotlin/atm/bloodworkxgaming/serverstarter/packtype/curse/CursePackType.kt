@@ -5,16 +5,15 @@ import atm.bloodworkxgaming.serverstarter.ServerStarter.Companion.LOGGER
 import atm.bloodworkxgaming.serverstarter.config.ConfigFile
 import atm.bloodworkxgaming.serverstarter.packtype.AbstractZipbasedPackType
 import atm.bloodworkxgaming.serverstarter.packtype.writeToFile
-import com.fasterxml.jackson.annotation.JsonIgnore
 import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
-import com.google.gson.Gson
 import com.google.gson.JsonParser
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.apache.commons.io.FileUtils
+import org.apache.commons.io.FilenameUtils
 import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
@@ -23,6 +22,7 @@ import java.net.URISyntaxException
 import java.nio.file.PathMatcher
 import java.nio.file.Paths
 import java.util.*
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.regex.Pattern
 import java.util.zip.ZipEntry
@@ -261,7 +261,7 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
                         .header("Content-Type", "application/json")
                         .build()
 
-                val res = InternetManager.httpClient.newCall(request).execute()
+                val res = internetManager.httpClient.newCall(request).execute()
 
                 if (!res.isSuccessful)
                     throw IOException("Request to $url was not successful.")
@@ -304,9 +304,7 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
      *
      * @param response object with information from curse api
      */
-    private fun processMods(response: GetFilesResponse) {
-        val mods = response.data
-
+    private fun processMods(mods: Collection<String>) {
         // constructs the ignore list
         val ignorePatterns = ArrayList<Pattern>()
         for (ignoreFile in configFile.install.ignoreFiles) {
@@ -318,11 +316,11 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
         // downloads the mods
         val count = AtomicInteger(0)
         val totalCount = mods.size
-        val fallbackList = ArrayList<GetFilesResponseMod>()
+        val fallbackList = ArrayList<String>()
 
         mods.stream().parallel().forEach { s -> processSingleMod(s, count, totalCount, fallbackList, ignorePatterns) }
 
-        val secondFail = ArrayList<GetFilesResponseMod>()
+        val secondFail = ArrayList<String>()
         fallbackList.forEach { s -> processSingleMod(s, count, totalCount, secondFail, ignorePatterns) }
 
         if (secondFail.isNotEmpty()) {
@@ -330,10 +328,6 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
             for (s in secondFail) {
                 LOGGER.warn("\t" + s)
             }
-        }
-
-        mods.filter { it.downloadUrl == null }.forEach {
-            println("Downloading ${it.displayName} is prohibited, please download it on your own.")
         }
     }
 
@@ -346,20 +340,17 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
      * @param fallbackList   List to write to when it failed
      * @param ignorePatterns Patterns of mods which should be ignored
      */
-    private fun processSingleMod(mod: GetFilesResponseMod, counter: AtomicInteger, totalCount: Int, fallbackList: MutableList<GetFilesResponseMod>, ignorePatterns: List<Pattern>) {
-        if (mod.downloadUrl == null)
-            return
-
+    private fun processSingleMod(mod: String, counter: AtomicInteger, totalCount: Int, fallbackList: MutableList<String>, ignorePatterns: List<Pattern>) {
         try {
-            val fileName = mod.fileName // FilenameUtils.getName(mod.downloadUrl)
+            val modName = FilenameUtils.getName(mod)
             for (ignorePattern in ignorePatterns) {
-                if (ignorePattern.matcher(fileName).matches()) {
-                    LOGGER.info("[" + counter.incrementAndGet() + "/" + totalCount + "] Skipped ignored mod: " + mod.displayName)
+                if (ignorePattern.matcher(modName).matches()) {
+                    LOGGER.info("[" + counter.incrementAndGet() + "/" + totalCount + "] Skipped ignored mod: " + modName)
                 }
             }
 
-            internetManager.downloadToFile(mod.downloadUrl, File(basePath + "mods/" + fileName))
-            LOGGER.info("[" + String.format("% 3d", counter.incrementAndGet()) + "/" + totalCount + "] Downloaded mod: " + mod.displayName)
+            internetManager.downloadToFile(mod, File(basePath + "mods/" + modName))
+            LOGGER.info("[" + String.format("% 3d", counter.incrementAndGet()) + "/" + totalCount + "] Downloaded mod: " + modName)
 
         } catch (e: IOException) {
             LOGGER.error("Failed to download mod", e)
