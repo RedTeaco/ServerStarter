@@ -133,7 +133,7 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
         val mods = ArrayList<ModEntryRaw>()
 
         InputStreamReader(FileInputStream(File(basePath + "manifest.json")), "utf-8").use { reader ->
-            val json = JsonParser().parse(reader).asJsonObject
+            val json = JsonParser.parseReader(reader).asJsonObject
             LOGGER.info("manifest JSON Object: $json", true)
             val mcObj = json.getAsJsonObject("minecraft")
 
@@ -267,21 +267,25 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
                     throw IOException("Request to $url was not successful.")
                 val body = res.body ?: throw IOException("Request to $url returned a null body.")
                 try {
-                    val jsonRes = JsonParser().parse(body.string()).asJsonObject
+                    val jsonRes = JsonParser.parseString(body.string()).asJsonObject
                     LOGGER.info("Response from manifest query: $jsonRes", true)
                     var arr = jsonRes.asJsonObject.getAsJsonObject("download");
+                    if (arr["name"].asString.split(".").last() != "jar") {
+                        LOGGER.info("Skipping resource with projectID: " + mod.projectID)
+                        return@forEach
+                    }
                     var part1 = mod.fileID.subSequence(0, 4).toString();
                     var part2 = mod.fileID.split(part1)[1];
                     val regx = "^0+\$".toRegex();
                     if(!regx.containsMatchIn(part2))
-                        part2 = part2.replace("^0*".toRegex(),"");
+                        part2 = part2.replace("^0*".toRegex(),""); //将0开头的id替换掉
                     else
                         part2 = "0";
-                    var url = "https://mediafilez.forgecdn.net/files/$part1/$part2/${arr["name"].asString.replace("+","%2B")}"
-                    LOGGER.info(url)
-                    urls.add(url)
+                    val urlDownload = "https://mediafilez.forgecdn.net/files/$part1/$part2/${arr["name"].asString.replace("+","%2B")}"
+                    LOGGER.info(urlDownload)
+                    urls.add(urlDownload)
                 }
-                catch(e:Exception)
+                catch(_:Exception)
                 {
 
                 }

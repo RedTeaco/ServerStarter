@@ -1,11 +1,12 @@
 package atm.bloodworkxgaming.serverstarter.yaml
 
 import atm.bloodworkxgaming.serverstarter.ServerStarter
+import org.yaml.snakeyaml.LoaderOptions
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.nodes.Node
 import java.util.*
 
-class CustomConstructor(clazz: Class<*>) : Constructor(clazz) {
+class CustomConstructor(clazz: Class<*>) : Constructor(clazz, LoaderOptions()) {
     override fun constructObject(node: Node?): Any? {
         val o = super.constructObject(node)
         val clazz = node?.type

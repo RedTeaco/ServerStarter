@@ -9,6 +9,7 @@ import org.apache.commons.io.FileUtils
 import org.fusesource.jansi.Ansi.ansi
 import org.fusesource.jansi.AnsiConsole
 import org.yaml.snakeyaml.DumperOptions
+import org.yaml.snakeyaml.LoaderOptions
 import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.constructor.Constructor
 import org.yaml.snakeyaml.nodes.Tag
@@ -22,10 +23,10 @@ import kotlin.system.exitProcess
 
 class ServerStarter(args: Array<String>) {
     companion object {
-        private val rep: Representer = Representer()
+        private val rep: Representer = Representer(DumperOptions())
         private val options: DumperOptions = DumperOptions()
         private const val CURRENT_SPEC = 2
-        private const val VERSION = "2.3.1"
+        private const val VERSION = "2.3.2"
 
         val LOGGER = PrimitiveLogger(File("serverstarter.log"))
         var lockFile: LockFile
@@ -84,7 +85,7 @@ class ServerStarter(args: Array<String>) {
          * Reads the lockfile if present, returns a new if not
          */
         private fun readLockFile(): LockFile {
-            val yaml = Yaml(Constructor(LockFile::class.java), rep, options)
+            val yaml = Yaml(Constructor(LockFile::class.java, LoaderOptions()), rep, options)
             val file = File("serverstarter.lock")
 
             if (file.exists()) {
@@ -108,7 +109,7 @@ class ServerStarter(args: Array<String>) {
          * @param lockFile lockfile to write
          */
         fun saveLockFile(lockFile: LockFile) {
-            val yaml = Yaml(Constructor(LockFile::class.java), rep, options)
+            val yaml = Yaml(Constructor(LockFile::class.java,LoaderOptions()), rep, options)
             val file = File("serverstarter.lock")
             this.lockFile = lockFile
 

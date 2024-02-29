@@ -1,5 +1,7 @@
 package atm.bloodworkxgaming.serverstarter
 
+import java.util.*
+
 object OSUtil {
     val osName: String by lazy {
         try {
@@ -9,6 +11,6 @@ object OSUtil {
         }
     }
 
-    val isLinux: Boolean = osName.toLowerCase().startsWith("linux")
-    val isWindows: Boolean = osName.toLowerCase().startsWith("win")
+    val isLinux: Boolean = osName.lowercase(Locale.getDefault()).startsWith("linux")
+    val isWindows: Boolean = osName.lowercase(Locale.getDefault()).startsWith("win")
 }
