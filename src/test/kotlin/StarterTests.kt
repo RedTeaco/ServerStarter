@@ -15,7 +15,6 @@ class StarterTests {
     }
 
     fun testIO() {
-        val t = readLine()
 
         ProcessBuilder("cmd").apply {
             inheritIO()

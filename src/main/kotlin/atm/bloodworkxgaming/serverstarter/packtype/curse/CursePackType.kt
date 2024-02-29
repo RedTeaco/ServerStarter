@@ -269,18 +269,18 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
                 try {
                     val jsonRes = JsonParser.parseString(body.string()).asJsonObject
                     LOGGER.info("Response from manifest query: $jsonRes", true)
-                    var arr = jsonRes.asJsonObject.getAsJsonObject("download");
+                    val arr = jsonRes.asJsonObject.getAsJsonObject("download")
                     if (arr["name"].asString.split(".").last() != "jar") {
                         LOGGER.info("Skipping resource with projectID: " + mod.projectID)
                         return@forEach
                     }
-                    var part1 = mod.fileID.subSequence(0, 4).toString();
-                    var part2 = mod.fileID.split(part1)[1];
-                    val regx = "^0+\$".toRegex();
-                    if(!regx.containsMatchIn(part2))
-                        part2 = part2.replace("^0*".toRegex(),""); //将0开头的id替换掉
+                    val part1 = mod.fileID.subSequence(0, 4).toString()
+                    var part2 = mod.fileID.split(part1)[1]
+                    val regx = "^0+\$".toRegex()
+                    part2 = if(!regx.containsMatchIn(part2))
+                        part2.replace("^0*".toRegex(),"") //将0开头的id替换掉
                     else
-                        part2 = "0";
+                        "0"
                     val urlDownload = "https://mediafilez.forgecdn.net/files/$part1/$part2/${arr["name"].asString.replace("+","%2B")}"
                     LOGGER.info(urlDownload)
                     urls.add(urlDownload)
@@ -306,7 +306,7 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
      * Downloads all mods, with a second fallback if failed
      * This is done in parallel for better performance
      *
-     * @param response object with information from curse api
+     * @param mods object with information from curse api
      */
     private fun processMods(mods: Collection<String>) {
         // constructs the ignore list

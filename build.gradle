@@ -41,7 +41,7 @@ dependencies {
 }
 
 shadowJar {
-    classifier = ""
+    setArchiveClassifier("")
 }
 
 jar {
@@ -88,10 +88,10 @@ tasks.register('zipDist', Zip) {
     dependsOn packageDist
     group = "build"
 
-    from file("$buildDir/dist/serverstarter-$version/")
+    from file("$buildDir/dist/serverstarter-$archiveVersion/")
     include '*'
     include '*/**'
-    archiveName = "serverstarter-${version}.zip"
+    archiveFileName = "serverstarter-${archiveVersion}.zip"
     destinationDir = file("$buildDir/release/")
 }
 
