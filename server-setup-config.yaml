@@ -13,22 +13,17 @@ modpack:
 
 # settings regarding the installation of the modpack
 install:
-  # Curse Forge requires an API Token to access the API and to allow for downloading files.
-  # This field supports using an Environment Variable like ${CURSE_FORGE_API_KEY} to decrease the risk of sharing the API-Key by mistake
-  # To Modpack authors: You can enter your own API-Key here, but do that on your own risk.
-  curseForgeApiKey: "${CURSE_FORGE_API_KEY}"
-
   # version of minecraft, needs the exact version
   mcVersion: 1.17.1
 
   # exact version of forge or fabric that is supposed to be used
   # if this value is a null value so ( ~, null, or "" ) then the version from the mod pack is going to be used
-  loaderVersion: 37.0.95
+  loaderVersion: ~
 
   # If a custom installer is supposed to used, specify the url here: (Otherwise put "", ~ or null here)
   # supports variables: {{@loaderversion@}} and {{@mcversion@}}
   # For forge: "https://files.minecraftforge.net/maven/net/minecraftforge/forge/{{@mcversion@}}-{{@loaderversion@}}/forge-{{@mcversion@}}-{{@loaderversion@}}-installer.jar"
-  # For Fabric: "https://maven.fabricmc.net/net/fabricmc/fabric-installer/{{@loaderversion@}}/fabric-installer-{{@loaderversion@}}.jar"
+  # For Fabric: "https://meta.fabricmc.net/v2/versions/loader/{{@mcversion@}}/{{@loaderversion@}}"
   installerUrl: "https://files.minecraftforge.net/maven/net/minecraftforge/forge/{{@mcversion@}}-{{@loaderversion@}}/forge-{{@mcversion@}}-{{@loaderversion@}}-installer.jar"
 
   # Installer Arguments
@@ -36,8 +31,7 @@ install:
   #
   # For Fabric:
   # installerArguments:
-  #   - "-downloadMinecraft"
-  #   - "server"
+  #   None: it's a executable jar
   #
   # For Forge:
   # installerArguments:
@@ -49,11 +43,12 @@ install:
   # This supports loading from local files as well for most pack types if there is file://{PathToFile} in the beginning
   # Note: file://{PathToFile} does not need the full path, can be a relative path.
   # E.g: modpackUrl: file://../modpacks/All+the+Mods+7-0.0.21.zip
-  modpackUrl: https://media.forgecdn.net/files/3491/186/All+the+Mods+7-0.0.21.zip
+  modpackUrl: https://mediafilez.forgecdn.net/files/3491/186/All+the+Mods+7-0.0.21.zip
 
   # This is used to specify in which format the modpack is distributed, the server launcher has to handle each individually if their format differs
   # current supported formats:
   # - curseforge or curse
+  # - modrinth
   # - curseid
   # - zip or zipfile
   modpackFormat: curse
@@ -96,6 +91,12 @@ install:
     - resources/**
     - packmenu/**
     - openloader/resources/**
+    - kubejs/assets/**
+    - kubejs/client_scripts/**
+    - building_gadgets_patterns/**
+    - config/*-client.toml
+    - defaultconfigs/*-client.toml
+    - local/**
 
   # often a server needs more files, which are nearly useless on the client, such as tickprofiler
   # This is a list of files, each ' - ' is a new file:
@@ -110,11 +111,11 @@ install:
 
   # For often there are config which the user wants to change, here is the place to put the local path to configs, jars or whatever
   # You can copy files or folders
-  localFiles:
-    - from: setup/modpack-download.zip
-      to: setup/test/modpack-download-copied.zip
-    - from: setup/AOF 2/.minecraft
-      to: setup/.
+  #localFiles:
+  #  - from: setup/modpack-download.zip
+  #    to: setup/test/modpack-download-copied.zip
+  #  - from: setup/AOF 2/.minecraft
+  #    to: setup/.
 
   # This makes the program check the folder for whether it is supposed to use the
   checkFolder: true
@@ -188,11 +189,11 @@ launch:
   #  - "--fml.modLists"
   #  - "pathToModListFile"
   #
-  # For <1.16 it should be
+  # For <1.16 it should be (Fabric and Forge)
   #  - "-jar"
   #  - "{{@startFile@}}"
   #  - "nogui"
-  # For >=1.17 it should be
+  # For >=1.17 it should be (Forge, Fabric is the same as <1.16)
   # - "@libraries/net/minecraftforge/forge/{{@mcversion@}}-{{@loaderversion@}}/{{@os@}}_args.txt"
   # - "nogui"
   startCommand:

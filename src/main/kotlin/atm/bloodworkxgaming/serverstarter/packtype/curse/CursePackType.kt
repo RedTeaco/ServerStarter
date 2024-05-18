@@ -29,7 +29,7 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 
 open class CursePackType(private val configFile: ConfigFile, internetManager: InternetManager) : AbstractZipbasedPackType(configFile, internetManager) {
-    private var forgeVersion: String = configFile.install.loaderVersion
+    private var loaderVersion: String = configFile.install.loaderVersion
     private var mcVersion: String = configFile.install.mcVersion
     private val oldFiles = File(basePath + "OLD_TO_DELETE/")
 
@@ -45,8 +45,8 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
      *
      * @return String representation of the version
      */
-    override fun getForgeVersion(): String {
-        return forgeVersion
+    override fun getLoaderVersion(): String {
+        return loaderVersion
     }
 
     /**
@@ -142,10 +142,10 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
             }
 
             // gets the forge version
-            if (forgeVersion.isEmpty()) {
+            if (loaderVersion.isEmpty()) {
                 val loaders = mcObj.getAsJsonArray("modLoaders")
                 if (loaders.size() > 0) {
-                    forgeVersion = loaders[0].asJsonObject.getAsJsonPrimitive("id").asString.substring(6)
+                    loaderVersion = loaders[0].asJsonObject.getAsJsonPrimitive("id").asString.substring(6)
                 }
             }
 

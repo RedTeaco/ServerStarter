@@ -56,8 +56,9 @@ abstract class AbstractZipbasedPackType(private val configFile: ConfigFile, prot
     @Throws(IOException::class)
     private fun downloadFile(url: String): File {
         ServerStarter.LOGGER.info("Attempting to download modpack Zip.")
+        val suffix = url.split(".").last()
         try {
-            val to = File(basePath + "modpack-download.zip")
+            val to = File(basePath + "modpack-download.$suffix")
 
             internetManager.downloadToFile(url, to)
             ServerStarter.LOGGER.info("Downloaded the modpack zip file to " + to.absolutePath)

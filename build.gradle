@@ -2,12 +2,12 @@ plugins {
     id 'java'
     id "org.jetbrains.kotlin.jvm" version "1.6.21"
     id "com.github.johnrengelman.shadow" version "7.0.0"
-    id "com.github.breadmoirai.github-release" version "2.2.12"
+    id "com.github.breadmoirai.github-release" version "2.5.2"
     id "com.github.ben-manes.versions" version "0.39.0"
 }
 
 group = 'atm.bloodworkxgaming'
-version = '2.3.2'
+version = '2.4.0'
 
 sourceCompatibility = 1.8
 
@@ -88,20 +88,21 @@ tasks.register('zipDist', Zip) {
     dependsOn packageDist
     group = "build"
 
-    from file("$buildDir/dist/serverstarter-$archiveVersion/")
-    include '*'
-    include '*/**'
-    archiveFileName = "serverstarter-${archiveVersion}.zip"
-    destinationDir = file("$buildDir/release/")
+    archiveFileName = "serverstarter-${version}.zip"
+    destinationDirectory = (file("$buildDir/release/"))
+
+    from layout.buildDirectory.dir("dist/serverstarter-$version/")
 }
 
 
 githubRelease {
     token = getGithubKey()
-    owner = "BloodWorkXGaming"
+    owner = "EdenLeaf"
     repo = "ServerStarter"
+    targetCommitish = "master"
+    overwrite = true
 
-    releaseAssets file("$buildDir/release/serverstarter-${version}.zip")
+    releaseAssets ("$buildDir/libs/ServerStarter-${version}.jar",file("$buildDir/release/serverstarter-${version}.zip"))
 }
 
 tasks.githubRelease.dependsOn zipDist

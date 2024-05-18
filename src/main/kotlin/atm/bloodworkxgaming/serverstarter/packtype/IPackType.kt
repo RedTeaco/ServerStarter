@@ -4,6 +4,7 @@ import atm.bloodworkxgaming.serverstarter.InternetManager
 import atm.bloodworkxgaming.serverstarter.config.ConfigFile
 import atm.bloodworkxgaming.serverstarter.packtype.curse.CurseIDPackType
 import atm.bloodworkxgaming.serverstarter.packtype.curse.CursePackType
+import atm.bloodworkxgaming.serverstarter.packtype.modrinth.ModrinthPackType
 import atm.bloodworkxgaming.serverstarter.packtype.zip.ZipFilePackType
 
 interface IPackType {
@@ -11,6 +12,7 @@ interface IPackType {
         private val packtype = mutableMapOf<String, (ConfigFile, InternetManager) -> IPackType>(
                 Pair("curse", ::CursePackType),
                 Pair("curseforge", ::CursePackType),
+                Pair("modrinth", ::ModrinthPackType),
                 Pair("curseid", ::CurseIDPackType),
                 Pair("zip", ::ZipFilePackType),
                 Pair("zipfile", ::ZipFilePackType)
@@ -31,7 +33,7 @@ interface IPackType {
      *
      * @return String representation of the version
      */
-    fun getForgeVersion(): String
+    fun getLoaderVersion(): String
 
     /**
      * Gets the forge version, can be based on the version from the downloaded pack

@@ -4,6 +4,9 @@ package atm.bloodworkxgaming.serverstarter
 import atm.bloodworkxgaming.serverstarter.ServerStarter.Companion.LOGGER
 import atm.bloodworkxgaming.serverstarter.ServerStarter.Companion.lockFile
 import atm.bloodworkxgaming.serverstarter.config.ConfigFile
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import okhttp3.Request
 import org.apache.commons.io.FileUtils
 import org.apache.commons.io.FilenameUtils
 import org.fusesource.jansi.Ansi.ansi
@@ -15,6 +18,7 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.*
+import kotlin.collections.ArrayList
 import kotlin.concurrent.thread
 import kotlin.math.max
 
@@ -142,9 +146,76 @@ class LoaderManager(private val configFile: ConfigFile, private val internetMana
             .replace("{{@mcversion@}}", mcVersion)
         // http://files.minecraftforge.net/maven/net/minecraftforge/forge/1.12.2-14.23.3.2682/forge-1.12.2-14.23.3.2682-installer.jar
         //val installerPath = File(basePath + "forge-" + versionString + "-installer.jar")
-        val installerPath = File(basePath + "installer.jar")
+        var installerPath = File(basePath + "installer.jar")
+        val result: Boolean
+        if (url.contains("fabric")){
+            installerPath = File(basePath + "fabric-server-launch.jar")
+            result = installFabric(url,installerPath)
+        }
+        else
+            result = installForge(basePath,url,installerPath)
 
+        lockFile.loaderInstalled = true
+        lockFile.loaderVersion = loaderVersion
+        lockFile.mcVersion = mcVersion
+        ServerStarter.saveLockFile(lockFile)
+        checkEULA(basePath)
+        return result
+    }
 
+    /**
+     * Fabric's installer version is not conclude in the metadata files
+     * Using api to get the latest installer version.
+     */
+    fun getFabricInstallerVersion(): String {
+        val installerUrl = "https://meta.fabricmc.net/v2/versions/installer"
+        try{
+            val reqInstaller = Request.Builder()
+                .url(installerUrl)
+                .get()
+                .build()
+            val resInstaller = internetManager.httpClient.newCall(reqInstaller).execute()
+            if (!resInstaller.isSuccessful) throw IOException("HTTP error code: ${resInstaller.code} for $installerUrl")
+
+            val sourceInstaller = resInstaller.body?.string()
+            sourceInstaller?:throw IOException("Message body or source from $installerUrl was null")
+            val turnsType = object : TypeToken<List<InstallerInfo>>(){}.type
+            val installerJson = Gson().fromJson<ArrayList<InstallerInfo>>(sourceInstaller,turnsType)
+
+            return installerJson[0].version
+        }catch (e:IOException){
+            LOGGER.error("Problem while installing Loader from $installerUrl",e)
+            throw DownloadLoaderException("Problem while installing Loader from $installerUrl", e)
+        }
+    }
+
+    /**
+     * joint url to get the fabric-server-launcher.jar
+     * @param url: the installerUrl from config file.
+     * @param installerPath: the file "fabric-server-launcher.jar"
+     */
+    fun installFabric(url: String,installerPath: File): Boolean{
+        // get Installer Version:
+        val fabricVersion = getFabricInstallerVersion()
+        var fabricUrl = ""
+        try {
+            fabricUrl = url+"/${fabricVersion}/server/jar"
+            LOGGER.info("Attempting to download fabric from $fabricUrl")
+            internetManager.downloadToFile(fabricUrl,installerPath)
+
+            LOGGER.info("Done installing loader!")
+        }catch (e:IOException){
+            LOGGER.error("Problem while installing Loader from $fabricUrl",e)
+            throw DownloadLoaderException("Problem while installing Loader from $fabricUrl", e)
+        }catch (e:InterruptedException){
+            LOGGER.error("Problem while installing Loader from $fabricUrl", e)
+            throw DownloadLoaderException("Problem while installing Loader from $fabricUrl", e)
+        }
+
+        return true
+    }
+
+    fun installForge(basePath: String,url:String,installerPath:File): Boolean {
         try {
             LOGGER.info("Attempting to download installer from $url")
             internetManager.downloadToFile(url, installerPath)
@@ -163,20 +234,10 @@ class LoaderManager(private val configFile: ConfigFile, private val internetMana
                 .directory(File("$basePath."))
                 .start()
 
+
             installer.waitFor()
-
             LOGGER.info("Done installing loader, deleting installer!")
-
-            lockFile.loaderInstalled = true
-            lockFile.loaderVersion = loaderVersion
-            lockFile.mcVersion = mcVersion
-            ServerStarter.saveLockFile(lockFile)
-
-
             installerPath.delete()
-
-
-            checkEULA(basePath)
         } catch (e: IOException) {
             LOGGER.error("Problem while installing Loader from $url", e)
             throw DownloadLoaderException("Problem while installing Loader from $url", e)
@@ -376,3 +437,10 @@ class LoaderManager(private val configFile: ConfigFile, private val internetMana
         }
     }
 }
+
+data class InstallerInfo(
+    val url: String,
+    val maven: String,
+    val version: String,
+    val stable: Boolean
+)

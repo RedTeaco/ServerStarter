@@ -26,7 +26,7 @@ class ServerStarter(args: Array<String>) {
         private val rep: Representer = Representer(DumperOptions())
         private val options: DumperOptions = DumperOptions()
         private const val CURRENT_SPEC = 2
-        private const val VERSION = "2.3.2"
+        private const val VERSION = "2.4.0"
 
         val LOGGER = PrimitiveLogger(File("serverstarter.log"))
         var lockFile: LockFile
@@ -137,8 +137,8 @@ class ServerStarter(args: Array<String>) {
             info("")
             info("   This jar will launch a Minecraft Forge/Fabric Modded server")
             info("")
-            info(ansi().a("   Github:    ").fgBrightBlue().a("https://github.com/BloodyMods/ServerStarter"))
-            info(ansi().a("   Discord:   ").fgBrightBlue().a("https://discord.gg/A3c5YfV"))
+            info(ansi().a("   Origin Github:    ").fgBrightBlue().a("https://github.com/BloodyMods/ServerStarter"))
+            info(ansi().a("   Renew Github:    ").fgBrightBlue().a("https://github.com/EdenLeaf/ServerStarter"))
             info("")
             info(ansi().a("You are playing ").fgGreen().a(config.modpack.name))
             info("Starting to install/launch the server, lean back!")
@@ -158,11 +158,14 @@ class ServerStarter(args: Array<String>) {
         }
 
 
-        val forgeManager = LoaderManager(config, internetManager)
+        val loaderManager = LoaderManager(config, internetManager)
         if (lockFile.checkShouldInstall(config) || installOnly) {
             val packtype = IPackType.createPackType(config.install.modpackFormat, config, internetManager)
                     ?: throw InitException("Unknown pack format given in config, shutting down.")
-
+            if (config.install.modpackFormat == "modrinth"){
+                LOGGER.warn("Which mod supports server-side depends on the setting of the modpack's auther.\n" +
+                        "You may need to delete or add some mods")
+            }
             packtype.installPack()
             lockFile.packInstalled = true
             lockFile.packUrl = config.install.modpackUrl
@@ -170,13 +173,13 @@ class ServerStarter(args: Array<String>) {
 
 
             if (config.install.installLoader) {
-                val forgeVersion = packtype.getForgeVersion()
+                val forgeVersion = packtype.getLoaderVersion()
                 val mcVersion = packtype.getMCVersion()
-                forgeManager.installLoader(config.install.baseInstallPath, forgeVersion, mcVersion)
+                loaderManager.installLoader(config.install.baseInstallPath, forgeVersion, mcVersion)
             }
 
             if (config.launch.spongefix) {
-                lockFile.spongeBootstrapper = forgeManager.installSpongeBootstrapper(config.install.baseInstallPath)
+                lockFile.spongeBootstrapper = loaderManager.installSpongeBootstrapper(config.install.baseInstallPath)
                 saveLockFile(lockFile)
             }
 
@@ -195,7 +198,7 @@ class ServerStarter(args: Array<String>) {
             exitProcess(0)
         }
 
-        forgeManager.handleServer()
+        loaderManager.handleServer()
     }
 }
 
