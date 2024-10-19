@@ -82,6 +82,15 @@ tasks.register('packageDist', Copy) {
     into file("$buildDir/dist/serverstarter-$version/")
 
     filter { it.replaceAll("@@serverstarter-libVersion@@", version as String) }
+    doLast {
+        File shScript = file("$buildDir/dist/serverstarter-$version/startserver.sh")
+        String content = shScript.text
+        if (content.contains("\r\n")) {
+            content = content.replace("\r\n", "\n")
+            shScript.write(content)
+            println "Converted line endings in $shScript"
+        }
+    }
 }
 
 tasks.register('zipDist', Zip) {
