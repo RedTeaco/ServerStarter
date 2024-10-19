@@ -26,7 +26,7 @@ class ServerStarter(args: Array<String>) {
         private val rep: Representer = Representer(DumperOptions())
         private val options: DumperOptions = DumperOptions()
         private const val CURRENT_SPEC = 2
-        private const val VERSION = "2.4.0"
+        private const val VERSION = "2.4.1"
 
         val LOGGER = PrimitiveLogger(File("serverstarter.log"))
         var lockFile: LockFile

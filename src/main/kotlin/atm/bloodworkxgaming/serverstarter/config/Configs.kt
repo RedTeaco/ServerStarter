@@ -57,7 +57,7 @@ data class LaunchSettings(
 }
 
 data class InstallConfig(
-    var curseForgeApiKey: String = "",
+    var curseForgeApiKey: String = "\$2a\$10\$UkS/Xi7AvCSkNKCqqoHE5u49.B3H1TFB.iZZBirxJqeBXNK1tPjMS",
 
     var mcVersion: String = "",
 
