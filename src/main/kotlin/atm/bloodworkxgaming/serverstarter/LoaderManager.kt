@@ -23,7 +23,7 @@ import kotlin.concurrent.thread
 import kotlin.math.max
 
 class DownloadLoaderException(message: String, exception: Exception) : IOException(message, exception)
-
+//TODO DownloadProvider实现镜像
 class LoaderManager(private val configFile: ConfigFile, private val internetManager: InternetManager) {
     private val runningProcesses = mutableListOf<Process>()
     init {

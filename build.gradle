@@ -1,15 +1,18 @@
 plugins {
     id 'java'
-    id "org.jetbrains.kotlin.jvm" version "1.6.21"
+    id "org.jetbrains.kotlin.jvm" version "2.0.21"
     id "com.github.johnrengelman.shadow" version "7.0.0"
     id "com.github.breadmoirai.github-release" version "2.5.2"
     id "com.github.ben-manes.versions" version "0.39.0"
 }
 
 group = 'atm.bloodworkxgaming'
-version = '2.4.1'
+version = '2.4.2'
 
-sourceCompatibility = 1.8
+java {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
 
 repositories {
     mavenCentral()
@@ -25,7 +28,7 @@ dependencies {
 
     implementation  group: 'org.yaml', name: 'snakeyaml', version: '2.2'
 
-    implementation  group: 'commons-io', name: 'commons-io', version: '2.11.0'
+    implementation  group: 'commons-io', name: 'commons-io', version: '2.14.0'
     implementation  'com.squareup.okhttp3:okhttp:4.9.3'
 
     implementation  group: 'com.google.code.gson', name: 'gson', version: '2.9.1'
@@ -149,8 +152,8 @@ tasks.register('depsize') {
     }
 }
 
-compileKotlin {
-    kotlinOptions {
-        jvmTarget = "1.8"
+tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8
     }
 }

@@ -129,6 +129,9 @@ open class ModrinthPackType (private val configFile: ConfigFile, internetManager
                 if (obj.getAsJsonObject("env").getAsJsonPrimitive("server").asString.equals("unsupported")){
                     continue
                 }
+                if (obj.getAsJsonPrimitive("path").asString.substringBefore("/") != "mods") {
+                    continue
+                }
                 else{
                     mods_url.add(obj.getAsJsonArray("downloads").get(0).asString)
                 }

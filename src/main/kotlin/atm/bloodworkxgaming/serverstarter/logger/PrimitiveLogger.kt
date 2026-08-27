@@ -10,7 +10,7 @@ import java.io.PrintWriter
 import java.io.StringWriter
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
-
+//TODO 目前日志记录、管理不完善-- 自动记录日志不全、不能多日志文件管理
 class PrimitiveLogger(outputFile: File) {
     private val pattern = "\\x1b\\[[0-9;]*m".toRegex()
     private val dateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss")

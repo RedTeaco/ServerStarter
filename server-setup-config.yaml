@@ -14,7 +14,7 @@ modpack:
 # settings regarding the installation of the modpack
 install:
   # version of minecraft, needs the exact version
-  mcVersion: 1.17.1
+  mcVersion: 1.21.1
 
   # exact version of forge or fabric that is supposed to be used
   # if this value is a null value so ( ~, null, or "" ) then the version from the mod pack is going to be used
@@ -22,9 +22,10 @@ install:
 
   # If a custom installer is supposed to used, specify the url here: (Otherwise put "", ~ or null here)
   # supports variables: {{@loaderversion@}} and {{@mcversion@}}
-  # For forge: "https://files.minecraftforge.net/maven/net/minecraftforge/forge/{{@mcversion@}}-{{@loaderversion@}}/forge-{{@mcversion@}}-{{@loaderversion@}}-installer.jar"
+  # For forge: "http://files.minecraftforge.net/maven/net/minecraftforge/forge/{{@mcversion@}}-{{@loaderversion@}}/forge-{{@mcversion@}}-{{@loaderversion@}}-installer.jar"
   # For Fabric: "https://meta.fabricmc.net/v2/versions/loader/{{@mcversion@}}/{{@loaderversion@}}"
-  installerUrl: "https://files.minecraftforge.net/maven/net/minecraftforge/forge/{{@mcversion@}}-{{@loaderversion@}}/forge-{{@mcversion@}}-{{@loaderversion@}}-installer.jar"
+  # For NeoForge: "https://maven.neoforged.net/releases/net/neoforged/neoforge/{{@loaderversion@}}/neoforge-{{@loaderversion@}}-installer.jar"
+  installerUrl: "https://maven.neoforged.net/releases/net/neoforged/neoforge/{{@loaderversion@}}/neoforge-{{@loaderversion@}}-installer.jar"
 
   # Installer Arguments
   # These Arguments have to be passed to the installer
@@ -43,7 +44,7 @@ install:
   # This supports loading from local files as well for most pack types if there is file://{PathToFile} in the beginning
   # Note: file://{PathToFile} does not need the full path, can be a relative path.
   # E.g: modpackUrl: file://../modpacks/All+the+Mods+7-0.0.21.zip
-  modpackUrl: https://mediafilez.forgecdn.net/files/3491/186/All+the+Mods+7-0.0.21.zip
+  modpackUrl:
 
   # This is used to specify in which format the modpack is distributed, the server launcher has to handle each individually if their format differs
   # current supported formats:
@@ -79,7 +80,7 @@ install:
       - 431430
 
   # The base path where the server should be installed to, ~ for current path
-  baseInstallPath: setup/
+  baseInstallPath: ~
 
   # a list of files which are supposed to be ignored when installing it from the client files
   # this can either use regex or glob {default glob: https://docs.oracle.com/javase/8/docs/api/java/nio/file/FileSystem.html#getPathMatcher-java.lang.String-}
@@ -111,7 +112,7 @@ install:
 
   # For often there are config which the user wants to change, here is the place to put the local path to configs, jars or whatever
   # You can copy files or folders
-  #localFiles:
+  localFiles:
   #  - from: setup/modpack-download.zip
   #    to: setup/test/modpack-download-copied.zip
   #  - from: setup/AOF 2/.minecraft
@@ -148,13 +149,7 @@ launch:
   ramDisk: false
 
   # checks with the help of a few unrelated server whether the server is online
-  checkOffline: true
-
-  # These servers are going to be checked:
-  checkUrls:
-    - https://github.com/
-    - https://www.curseforge.com/
-    - https://cursemeta.dries007.net/
+  checkOffline: false
 
   # specifies the max amount of ram the server is supposed to launch with
   maxRam: 5G
@@ -196,10 +191,13 @@ launch:
   # For >=1.17 it should be (Forge, Fabric is the same as <1.16)
   # - "@libraries/net/minecraftforge/forge/{{@mcversion@}}-{{@loaderversion@}}/{{@os@}}_args.txt"
   # - "nogui"
+  # For NeoForge
+#    - '@libraries/net/neoforged/neoforge/{{@loaderversion@}}/{{@os@}}_args.txt'
+#    - 'nogui'
   startCommand:
-    - "@libraries/net/minecraftforge/forge/{{@mcversion@}}-{{@loaderversion@}}/{{@os@}}_args.txt"
-    - "nogui"
-
+    - '@libraries/net/neoforged/neoforge/{{@loaderversion@}}/{{@os@}}_args.txt'
+    - 'nogui'
+    -
   # In case you have multiple javas installed you can add a absolute path to it here
   # The Path has to be enclosed in \" like in the example if it has spaces (or for safety just include them always.)
   # if the value is "", null, or ~ then 'java' from PATH is going to be used
@@ -211,30 +209,31 @@ launch:
   # For this you need to have all available JVMs on the PATH
   # -> MC 1.12 to 1.16 requires java [8, 9, 10, 11]
   # -> MC 1.17 requires java [17]
-  supportedJavaVersions: [17]
 
   # Java args that are supposed to be used when the server launches
   # keep in mind java args often need ' - ' in front of it to work, use clarifying parentheses to make sure it uses it correctly
   # Keep in mind that some arguments only work on JRE 1.8
   # reference: https://aikar.co/2018/07/02/tuning-the-jvm-g1gc-garbage-collector-flags-for-minecraft/
   javaArgs:
-    - "-XX:+UseG1GC"
-    - "-XX:+ParallelRefProcEnabled"
-    - "-XX:MaxGCPauseMillis=200"
-    - "-XX:+UnlockExperimentalVMOptions"
-    - "-XX:+DisableExplicitGC"
-    - "-XX:+AlwaysPreTouch"
-    - "-XX:G1NewSizePercent=30"
-    - "-XX:G1MaxNewSizePercent=40"
-    - "-XX:G1HeapRegionSize=8M"
-    - "-XX:G1ReservePercent=20"
-    - "-XX:G1HeapWastePercent=5"
-    - "-XX:G1MixedGCCountTarget=4"
-    - "-XX:InitiatingHeapOccupancyPercent=15"
-    - "-XX:G1MixedGCLiveThresholdPercent=90"
-    - "-XX:G1RSetUpdatingPauseTimePercent=5"
-    - "-XX:SurvivorRatio=32"
-    - "-XX:+PerfDisableSharedMem"
-    - "-XX:MaxTenuringThreshold=1"
-    - "-Dfml.readTimeout=90"                        # servertimeout
-    - "-Dfml.queryResult=confirm"                   # auto /fmlconfirm
+    - '-XX:+UseG1GC'
+    - '-XX:+ParallelRefProcEnabled'
+    - '-XX:MaxGCPauseMillis=200'
+    - '-XX:+UnlockExperimentalVMOptions'
+    - '-XX:+DisableExplicitGC'
+    - '-XX:+AlwaysPreTouch'
+    - '-XX:G1NewSizePercent=30'
+    - '-XX:G1MaxNewSizePercent=40'
+    - '-XX:G1HeapRegionSize=8M'
+    - '-XX:G1ReservePercent=20'
+    - '-XX:G1HeapWastePercent=5'
+    - '-XX:G1MixedGCCountTarget=4'
+    - '-XX:InitiatingHeapOccupancyPercent=15'
+    - '-XX:G1MixedGCLiveThresholdPercent=90'
+    - '-XX:G1RSetUpdatingPauseTimePercent=5'
+    - '-XX:SurvivorRatio=32'
+    - '-XX:+PerfDisableSharedMem'
+    - '-XX:MaxTenuringThreshold=1'
+    - '-Dusing.aikars.flags=https://mcflags.emc.gs'
+    - '-Daikars.new.flags=true'
+    - '-Dfml.readTimeout=180' # servertimeout
+    - '-Dfml.queryResult=confirm' # auto /fmlconfirm

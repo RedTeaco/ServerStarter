@@ -146,7 +146,8 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
             if (loaderVersion.isEmpty()) {
                 val loaders = mcObj.getAsJsonArray("modLoaders")
                 if (loaders.size() > 0) {
-                    loaderVersion = loaders[0].asJsonObject.getAsJsonPrimitive("id").asString.substring(6)
+                    val id = loaders[0].asJsonObject.getAsJsonPrimitive("id").asString
+                    loaderVersion = id.substringAfterLast("-")
                 }
             }
 
@@ -173,7 +174,8 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
         val fileName: String,
         val displayName: String,
         val downloadUrl: String?,
-        val hashes: List<GetFilesResponseHashes>
+        val hashes: List<GetFilesResponseHashes>,
+        val gameVersions: List<String>? = null   // 新增字段
     )
 
 
@@ -209,18 +211,31 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
         val body = res.body ?: throw IOException("Request to $url returned a null body.")
 
         val str = body.string()
-        LOGGER.info("Response Json from fileid query: ${str.length}", true)
-        LOGGER.info("Response Json from fileid query: $str", true)
+        LOGGER.info("Response Json from fileId query: ${str.length}", true)
+        LOGGER.info("Response Json from fileId query: $str", true)
 
         val jsonRes = mapper.readValue<GetFilesResponse>(str)
         LOGGER.info("Converted Response from manifest query: $jsonRes", true)
 
+        val filteredMods = jsonRes.data.distinct().toList()
+            .filter { mod ->
+                // 1. 忽略列表中的项目
+                val isIgnoredById = ignoreSet.contains(mod.modId.toString())
+                // 2. 非 jar 文件（比如资源包）
+                val isNotJar = !mod.fileName.endsWith(".jar")
+                // 3. 判断是否为客户端专用（包含 Client 且不包含 Server）
+                val gameVersions = mod.gameVersions
+                val isClientOnly = gameVersions?.contains("Client") == true && gameVersions?.contains("Server") != true
 
-        val ignoredMods = jsonRes.data.distinct().toList().filter { ignoreSet.contains(it.modId.toString()) }
+                // 保留条件：非忽略、是 jar、且不是客户端专用
+                !isIgnoredById && !isNotJar && !isClientOnly
+            }
+        // ignore resource pack and shader pack
+        val ignoredMods = jsonRes.data.distinct().toList().filter { it !in filteredMods }
         val ignoredModsString = ignoredMods.joinToString(separator = "\n") { "\t${it.fileName} (${it.modId})" }
         LOGGER.info("Ignoring the following mods:\n $ignoredModsString")
 
-        return GetFilesResponse(jsonRes.data.distinct().toList().filter { !ignoreSet.contains(it.modId.toString()) })
+        return GetFilesResponse(filteredMods)
     }
 
     /**
@@ -232,7 +247,6 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
     private fun downloadMods(mods: List<ModEntryRaw>) {
         val ignoreSet = HashSet<String>()
         val ignoreListTemp = configFile.install.getFormatSpecificSettingOrDefault<List<Any>>("ignoreProject", null)
-
         if (ignoreListTemp != null)
             for (o in ignoreListTemp) {
                 if (o is String)
@@ -254,60 +268,6 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
                 urls.add(url)
             }
         }
-
-//        LOGGER.info("Requesting Download links from cursemeta.")
-//
-//        mods.parallelStream().forEach { mod ->
-//            if (ignoreSet.isNotEmpty() && ignoreSet.contains(mod.projectID)) {
-//                LOGGER.info("Skipping mod with projectID: " + mod.projectID)
-//                return@forEach
-//            }
-//
-//            // val url = "https://api.cfwidget.com/${mod.projectID}?version=${mod.fileID}"
-//            val modFileName = requestModInformation(listOf(mod), hashSetOf()).data[0].fileName
-//            val url = "https://edge.forgecdn.net/files/${Integer.parseInt(mod.fileID) / 1000}/${Integer.parseInt(mod.fileID) % 1000}/${modFileName}"
-//            LOGGER.info("Download url is: $url", true)
-//            urls.add(url)
-
-//            try {
-//                val request = Request.Builder()
-//                        .url(url)
-//                        .header("User-Agent", "All the mods server installer.")
-//                        .header("Content-Type", "application/json")
-//                        .build()
-//
-//                val res = internetManager.httpClient.newCall(request).execute()
-//
-//                if (!res.isSuccessful)
-//                    throw IOException("Request to $url was not successful.")
-//                val body = res.body ?: throw IOException("Request to $url returned a null body.")
-//                try {
-//                    val jsonRes = JsonParser.parseString(body.string()).asJsonObject
-//                    LOGGER.info("Response from manifest query: $jsonRes", true)
-//                    val arr = jsonRes.asJsonObject.getAsJsonObject("download")
-//                    if (arr["name"].asString.split(".").last() != "jar") {
-//                        LOGGER.info("Skipping resource with projectID: " + mod.projectID)
-//                        return@forEach
-//                    }
-//                    val part1 = mod.fileID.subSequence(0, 4).toString()
-//                    var part2 = mod.fileID.split(part1)[1]
-//                    val regx = "^0+\$".toRegex()
-//                    part2 = if(!regx.containsMatchIn(part2))
-//                        part2.replace("^0*".toRegex(),"") //将0开头的id替换掉
-//                    else
-//                        "0"
-//                    val urlDownload = "https://mediafilez.forgecdn.net/files/$part1/$part2/${arr["name"].asString.replace("+","%2B")}"
-//                    urls.add(urlDownload)
-//                }
-//                catch(_:Exception)
-//                {
-//
-//                }
-//
-//
-//            } catch (e: IOException) {
-//                LOGGER.error("Error while trying to get URL from cursemeta for mod $mod", e)
-//            }
         LOGGER.info("Mods to download: $urls", true)
 
         processMods(urls)
