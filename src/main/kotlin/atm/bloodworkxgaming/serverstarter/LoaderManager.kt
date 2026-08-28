@@ -4,6 +4,14 @@ package atm.bloodworkxgaming.serverstarter
 import atm.bloodworkxgaming.serverstarter.ServerStarter.Companion.LOGGER
 import atm.bloodworkxgaming.serverstarter.ServerStarter.Companion.lockFile
 import atm.bloodworkxgaming.serverstarter.config.ConfigFile
+import atm.bloodworkxgaming.serverstarter.mirror.core.InstallerZip
+import atm.bloodworkxgaming.serverstarter.mirror.core.LibraryDownloadTask
+import atm.bloodworkxgaming.serverstarter.mirror.download.DownloadProviders
+import atm.bloodworkxgaming.serverstarter.mirror.installer.ForgeInstaller
+import atm.bloodworkxgaming.serverstarter.mirror.installer.InstallerJsonExtractor
+import atm.bloodworkxgaming.serverstarter.mirror.installer.ModLoaderInstaller
+import atm.bloodworkxgaming.serverstarter.mirror.installer.NeoForgeInstaller
+import atm.bloodworkxgaming.serverstarter.mirror.installer.VersionMismatchException
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import okhttp3.Request
@@ -23,7 +31,6 @@ import kotlin.concurrent.thread
 import kotlin.math.max
 
 class DownloadLoaderException(message: String, exception: Exception) : IOException(message, exception)
-//TODO DownloadProvider实现镜像
 class LoaderManager(private val configFile: ConfigFile, private val internetManager: InternetManager) {
     private val runningProcesses = mutableListOf<Process>()
     init {
@@ -46,22 +53,13 @@ class LoaderManager(private val configFile: ConfigFile, private val internetMana
             try {
                 when {
                     timerString.endsWith("h") -> java.lang.Long.parseLong(
-                        timerString.substring(
-                            0,
-                            timerString.length - 1
-                        )
+                        timerString.dropLast(1)
                     ) * 60 * 60
                     timerString.endsWith("min") -> java.lang.Long.parseLong(
-                        timerString.substring(
-                            0,
-                            timerString.length - 3
-                        )
+                        timerString.dropLast(3)
                     ) * 60
                     timerString.endsWith("s") -> java.lang.Long.parseLong(
-                        timerString.substring(
-                            0,
-                            timerString.length - 1
-                        )
+                        timerString.dropLast(1)
                     )
                     else -> java.lang.Long.parseLong(timerString)
                 }
@@ -147,13 +145,22 @@ class LoaderManager(private val configFile: ConfigFile, private val internetMana
         // http://files.minecraftforge.net/maven/net/minecraftforge/forge/1.12.2-14.23.3.2682/forge-1.12.2-14.23.3.2682-installer.jar
         //val installerPath = File(basePath + "forge-" + versionString + "-installer.jar")
         var installerPath = File(basePath + "installer.jar")
-        val result: Boolean
-        if (url.contains("fabric")){
-            installerPath = File(basePath + "fabric-server-launch.jar")
-            result = installFabric(url,installerPath)
-        }
-        else
-            result = installForge(basePath,url,installerPath)
+        val result: Boolean =
+            if (url.contains("fabric")) {
+                installerPath = File(basePath + "fabric-server-launch.jar")
+                installFabric(url, installerPath)
+            } else if (configFile.install.downloadSource == "bmclapi") {
+                LOGGER.info("You're using BMCLAPI")
+                try {
+                    mirrorInstall(basePath, url, loaderVersion, mcVersion)
+                    true
+                } catch (e: Exception) {
+                    LOGGER.warn("镜像安装失败，回退 --installServer: ${e.message}")
+                    installForge(basePath, url, installerPath)
+                }
+            } else {
+                installForge(basePath, url, installerPath)
+            }
 
         lockFile.loaderInstalled = true
         lockFile.loaderVersion = loaderVersion
@@ -247,6 +254,58 @@ class LoaderManager(private val configFile: ConfigFile, private val internetMana
         }
 
         return true
+    }
+
+    /**
+     * 镜像站进程内安装（§4.3.1）：下载安装器 → 解析计划 → 版本校验 → 下载 targets → 静态抽取 → processors。
+     * 任一步异常向上抛，由 installLoader 兜底回退 --installServer。
+     */
+    private fun mirrorInstall(basePath: String, installerUrl: String, loaderVersion: String, mcVersion: String) {
+        val provider = DownloadProviders.create(configFile.install.downloadSource, configFile.install.mirrorUrl)
+        val installRoot = resolveInstallRoot(basePath)
+            LOGGER.info("install dir: ${installRoot.absolutePath}")
+        val installerFile = File.createTempFile("serverstarter-installer", ".jar")
+        try {
+            LOGGER.info("mirror: downloading installer $installerUrl(candidate: ${provider.injectURL(installerUrl)})")
+            LibraryDownloadTask(internetManager.httpClient, provider.getConcurrency())
+                .downloadToFile(installerUrl, installerFile, provider)
+            InstallerZip.openAndVerify(installerFile).close()   // 无 sha1 元数据 → 仅 zip 完整性
+            val plan = InstallerJsonExtractor.parsePlan(installerFile)
+            if (plan.mcVersion != mcVersion) {
+                throw VersionMismatchException("install plan MC version ${plan.mcVersion} is not consistent with $mcVersion")
+            }
+            if (plan.versionType == 0) {
+                throw UnsupportedOperationException("老式 fat installer 不支持镜像安装（versionType=0）")
+            }
+            val java = getEffectiveJavaPath()
+            val installer: ModLoaderInstaller =
+                if (plan.isNeoForge) NeoForgeInstaller(internetManager.httpClient, java)
+                else ForgeInstaller(internetManager.httpClient, java)
+            installer.install(plan, installRoot, installerFile, provider)
+        } finally {
+            // installerFile.delete()
+        }
+    }
+
+    /**
+     * 安装根目录解析：baseInstallPath 非空 → 按其解析；为空 → 锚定到**正在运行的 jar 所在目录**
+     * （而非进程工作目录 CWD），避免因启动目录不同导致 libraries/ 等文件散落到任意位置。
+     * jar 目录取 codeSource（打包运行 = jar 文件所在目录；IDE/测试 = classes 目录）。
+     */
+    private fun resolveInstallRoot(basePath: String): File {
+        if (basePath.isNotBlank()) return File(basePath)
+        return try {
+            val location = ServerStarter::class.java.protectionDomain?.codeSource?.location
+            val file = location?.let { File(it.toURI()) }
+            when {
+                file == null -> File("")
+                file.isDirectory -> file
+                else -> file.parentFile ?: File("")
+            }
+        } catch (e: Exception) {
+            LOGGER.warn("Unable to resolve the JAR directory, falling back to the current working directory. ${e.message}")
+            File("")
+        }
     }
 
     fun installSpongeBootstrapper(basePath: String): String {

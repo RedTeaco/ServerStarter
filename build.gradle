@@ -1,3 +1,6 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+
 plugins {
     id 'java'
     id "org.jetbrains.kotlin.jvm" version "2.0.21"
@@ -7,7 +10,7 @@ plugins {
 }
 
 group = 'atm.bloodworkxgaming'
-version = '2.4.2'
+version = '2.5.0'
 
 java {
     sourceCompatibility = JavaVersion.VERSION_1_8
@@ -152,8 +155,8 @@ tasks.register('depsize') {
     }
 }
 
-tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+tasks.withType(KotlinCompile).configureEach {
     compilerOptions {
-        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8
+        jvmTarget = JvmTarget.JVM_1_8
     }
 }

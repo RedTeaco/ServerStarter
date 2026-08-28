@@ -40,6 +40,17 @@ install:
   installerArguments:
     - "--installServer"
 
+  # 下载源（镜像站进程内安装）：
+  #   mojang  - 默认。官方直连，走原 --installServer 子进程安装（原行为）
+  #   bmclapi - 通过 BMCLAPI 镜像站进程内完成安装：下载安装器→解析→镜像下载全部文件→执行 processors
+  #              （不运行安装器子进程；镜像安装失败会自动回退 --installServer）
+  downloadSource: mojang
+
+  # 镜像站 apiRoot 覆盖（可选，仅 downloadSource: bmclapi 时生效）：
+  # 空值（~ / null / ""）使用 https://bmclapi2.bangbang93.com；可填 OpenBMCLAPI 节点地址
+  # 例: mirrorUrl: "https://bmclapi.example.com"
+  mirrorUrl: ~
+
   # Link to where the file where the modpack can be distributed
   # This supports loading from local files as well for most pack types if there is file://{PathToFile} in the beginning
   # Note: file://{PathToFile} does not need the full path, can be a relative path.
@@ -57,27 +68,11 @@ install:
   # Settings which are specific to the format used, might not be needed in some casese
   formatSpecific:
     # optional paramenter used for curse to specify a whole project to ignore (mostly if it is client side only)
-    ignoreProject:
-      - 263420
-      - 317780
-      - 232131
-      - 231275
-      - 367706
-      - 261725
-      - 243863
-      - 305373
-      - 325492
-      - 296468
-      - 308240
-      - 362791
-      - 291788
-      - 326950
-      - 237701
-      - 391382
-      - 358191
-      - 271740
-      - 428199
-      - 431430
+    # e.g.
+    # - 263420
+    # - 317780
+    # - 232131
+    ignoreProject: ~
 
   # The base path where the server should be installed to, ~ for current path
   baseInstallPath: ~
