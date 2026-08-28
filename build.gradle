@@ -7,7 +7,7 @@ plugins {
 }
 
 group = 'atm.bloodworkxgaming'
-version = '2.4.2'
+version = '2.5.0-dev'
 
 java {
     sourceCompatibility = JavaVersion.VERSION_1_8

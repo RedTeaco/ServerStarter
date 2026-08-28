@@ -11,9 +11,24 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 class InternetManager(private val configFile: ConfigFile) {
+    companion object {
+        /**
+         * 下载请求 User-Agent。部分镜像/CDN（实测 BMCLAPI→USTC 重定向目标）会拒绝 OkHttp 默认
+         * "okhttp/x.y.z" UA（403），必须使用自有 UA（HMCL 同款风格）。
+         */
+        const val USER_AGENT = "ServerStarter/2.4.2"
+    }
+
     val httpClient = OkHttpClient.Builder()
         .connectTimeout(configFile.install.connectTimeout, TimeUnit.SECONDS)
         .readTimeout(configFile.install.readTimeout, TimeUnit.SECONDS)
+        .addInterceptor { chain ->
+            chain.proceed(
+                chain.request().newBuilder()
+                    .header("User-Agent", USER_AGENT)
+                    .build()
+            )
+        }
         .build()
 
 

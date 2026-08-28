@@ -21,3 +21,4 @@ gradle-app.setting
 /serverstarter.lock
 /setup_2/
 /src/test/
+/.kotlin/

@@ -64,6 +64,8 @@ data class InstallConfig(
     var loaderVersion: String = "",
     var installerUrl: String = "",
     var installerArguments: List<String> = Collections.emptyList(),
+    var downloadSource: String = "mojang",   // 下载源：mojang（默认，走原 --installServer）| bmclapi（镜像进程内安装）
+    var mirrorUrl: String = "",              // 可选 apiRoot 覆盖（OpenBMCLAPI 节点）；空 = https://bmclapi2.bangbang93.com
 
     var modpackUrl: String = "",
     var modpackFormat: String = "",
