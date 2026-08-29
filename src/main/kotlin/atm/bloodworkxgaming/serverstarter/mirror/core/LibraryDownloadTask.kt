@@ -4,12 +4,14 @@ import atm.bloodworkxgaming.serverstarter.ServerStarter.Companion.LOGGER
 import atm.bloodworkxgaming.serverstarter.mirror.download.DownloadProvider
 import atm.bloodworkxgaming.serverstarter.mirror.installer.DownloadFailedException
 import atm.bloodworkxgaming.serverstarter.mirror.installer.DownloadTarget
+import atm.bloodworkxgaming.serverstarter.util.ByteProgressReporter
+import atm.bloodworkxgaming.serverstarter.util.FileCountProgressReporter
+import atm.bloodworkxgaming.serverstarter.util.HashingUtil
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.apache.commons.io.FileUtils
 import java.io.File
 import java.io.IOException
-import java.security.MessageDigest
 import java.util.concurrent.Callable
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.ExecutorService
@@ -32,8 +34,14 @@ class LibraryDownloadTask(
     /**
      * 并发下载 targets 到 baseDir 下（dest = baseDir/relativePath）。全部成功或抛 DownloadFailedException。
      * 任一文件失败 → 其余任务继续跑完，最后汇总抛 DownloadFailedException（记录第一个失败原因，warn 其余失败）。
+     * fileProgress 非空时：每个文件完成后 fileCompleted()；循环结束（含失败）后 finish()（finally 语义）。
      */
-    fun downloadAll(targets: List<DownloadTarget>, baseDir: File, provider: DownloadProvider) {
+    fun downloadAll(
+        targets: List<DownloadTarget>,
+        baseDir: File,
+        provider: DownloadProvider,
+        fileProgress: FileCountProgressReporter? = null
+    ) {
         if (targets.isEmpty()) return
         val poolSize = minOf(concurrency, MAX_POOL).coerceAtLeast(1)
         val executor: ExecutorService = Executors.newFixedThreadPool(poolSize)
@@ -46,6 +54,7 @@ class LibraryDownloadTask(
             for (future in futures) {
                 try {
                     future.get()
+                    fileProgress?.fileCompleted()
                 } catch (e: InterruptedException) {
                     Thread.currentThread().interrupt()
                     firstError = firstError ?: DownloadFailedException("Download interrupted", e)
@@ -65,19 +74,26 @@ class LibraryDownloadTask(
             }
         } finally {
             executor.shutdown()
+            fileProgress?.finish()
         }
     }
 
     /** 下载单个 URL 到 dest（无 relativePath 语义，用于 installer 等单文件）。 */
-    fun downloadToFile(url: String, dest: File, provider: DownloadProvider, sha1: String? = null) {
-        downloadFile(url, dest, provider, sha1, null, dest.name)
+    fun downloadToFile(
+        url: String,
+        dest: File,
+        provider: DownloadProvider,
+        sha1: String? = null,
+        progress: ByteProgressReporter? = null
+    ) {
+        downloadFile(url, dest, provider, sha1, null, dest.name, progress)
     }
 
     // ---------- 内部 ----------
 
     private fun downloadTarget(target: DownloadTarget, baseDir: File, provider: DownloadProvider) {
         val dest = File(baseDir, target.relativePath)
-        downloadFile(target.url, dest, provider, target.sha1, target.size, target.relativePath)
+        downloadFile(target.url, dest, provider, target.sha1, target.size, target.relativePath, null)
     }
 
     /**
@@ -93,12 +109,13 @@ class LibraryDownloadTask(
         provider: DownloadProvider,
         sha1: String?,
         size: Long?,
-        label: String
+        label: String,
+        progress: ByteProgressReporter?
     ) {
         // 幂等/断点：dest 已存在且校验通过 → 跳过
         if (dest.exists()) {
             when {
-                sha1 != null && sha1Of(dest) == sha1 -> {
+                sha1 != null && HashingUtil.sha1Hex(dest) == sha1 -> {
                     LOGGER.info("$label Already exists, skip")
                     return
                 }
@@ -125,7 +142,7 @@ class LibraryDownloadTask(
                 attempt++
                 var downloaded = false
                 try {
-                    downloadAttempt(candidate, temp, sha1, size, label)
+                    downloadAttempt(candidate, temp, sha1, size, label, progress)
                     downloaded = true
                     replaceTemp(temp, dest)
                     return
@@ -156,8 +173,16 @@ class LibraryDownloadTask(
     /**
      * 单次尝试：GET 候选 URL 下载到 temp，并按 sha1/size 校验。
      * 非 2xx / 连接异常 / 校验失败 → IOException（触发重试或候选回退）。
+     * progress 非空时：onStart(Content-Length) → 带计数循环 addBytes → finish。
      */
-    private fun downloadAttempt(candidateUrl: String, temp: File, sha1: String?, size: Long?, label: String) {
+    private fun downloadAttempt(
+        candidateUrl: String,
+        temp: File,
+        sha1: String?,
+        size: Long?,
+        label: String,
+        progress: ByteProgressReporter?
+    ) {
         val request = Request.Builder().url(candidateUrl).get().build()
         httpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
@@ -165,13 +190,23 @@ class LibraryDownloadTask(
             }
             val body = response.body ?: throw IOException("Message body was null for $candidateUrl")
             temp.parentFile?.mkdirs()
+            progress?.onStart(body.contentLength().takeIf { it >= 0 })
             body.byteStream().use { input ->
-                temp.outputStream().use { output -> input.copyTo(output) }
+                temp.outputStream().use { output ->
+                    val buf = ByteArray(8192)
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        output.write(buf, 0, n)
+                        progress?.addBytes(n.toLong())
+                    }
+                }
             }
         }
+        progress?.finish()
         // 校验：sha1 优先；sha1 为 null 时用 size；都 null 只做 HTTP 成功判断
         if (sha1 != null) {
-            val actual = sha1Of(temp)
+            val actual = HashingUtil.sha1Hex(temp)
             if (actual != sha1) {
                 temp.delete()
                 LOGGER.warn("$label SHA-1 校验失败: 期望 $sha1，实际 $actual")
@@ -203,27 +238,7 @@ class LibraryDownloadTask(
         return File(parent, abs.name + ".part")
     }
 
-    /** 流式计算文件 SHA-1（hex 小写）。 */
-    private fun sha1Of(file: File): String {
-        val digest = MessageDigest.getInstance("SHA-1")
-        file.inputStream().use { input ->
-            val buffer = ByteArray(8192)
-            while (true) {
-                val read = input.read(buffer)
-                if (read < 0) break
-                digest.update(buffer, 0, read)
-            }
-        }
-        val sb = StringBuilder()
-        for (b in digest.digest()) {
-            sb.append(HEX[(b.toInt() shr 4) and 0x0F])
-            sb.append(HEX[b.toInt() and 0x0F])
-        }
-        return sb.toString()
-    }
-
     private companion object {
         const val MAX_POOL = 8
-        val HEX = "0123456789abcdef".toCharArray()
     }
 }

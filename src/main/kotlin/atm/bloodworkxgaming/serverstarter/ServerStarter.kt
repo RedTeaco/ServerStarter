@@ -4,6 +4,7 @@ import atm.bloodworkxgaming.serverstarter.config.ConfigFile
 import atm.bloodworkxgaming.serverstarter.config.LockFile
 import atm.bloodworkxgaming.serverstarter.logger.PrimitiveLogger
 import atm.bloodworkxgaming.serverstarter.packtype.IPackType
+import atm.bloodworkxgaming.serverstarter.util.AppVersion
 import atm.bloodworkxgaming.serverstarter.yaml.CustomConstructor
 import org.apache.commons.io.FileUtils
 import org.fusesource.jansi.Ansi.ansi
@@ -26,7 +27,6 @@ class ServerStarter(args: Array<String>) {
         private val rep: Representer = Representer(DumperOptions())
         private val options: DumperOptions = DumperOptions()
         private const val CURRENT_SPEC = 2
-        private const val VERSION = "2.5.0-dev"
 
         val LOGGER = PrimitiveLogger(File("serverstarter.log"))
         var lockFile: LockFile
@@ -132,7 +132,7 @@ class ServerStarter(args: Array<String>) {
             info(ansi().fgRed().a(":::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::"))
             info(ansi().fgBrightBlue().a("   Minecraft ServerStarter install/launcher jar"))
             info(ansi().fgBrightBlue().a("   (Created by ").fgGreen().a("BloodWorkXGaming").fgBrightBlue().a(" with the help of ").fgGreen().a("Contributors").fgBrightBlue().a(")"))
-            info(ansi().fgBrightBlue().a("   Version $VERSION"))
+            info(ansi().fgBrightBlue().a("   Version ${AppVersion.version}"))
             info(ansi().fgRed().a(":::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::"))
             info("")
             info("   This jar will launch a Minecraft Forge/Fabric Modded server")
@@ -166,17 +166,20 @@ class ServerStarter(args: Array<String>) {
                 LOGGER.warn("Which mod supports server-side depends on the setting of the modpack's auther.\n" +
                         "You may need to delete or add some mods")
             }
-            packtype.installPack()
+            if (config.install.modpackUrl.isNotEmpty()) {
+                val zip = packtype.obtainPack()                    // ① 下载/定位整合包 zip
+                val versions = packtype.resolveVersions(zip)       // ② 从 zip 解析最终生效版本（不落盘）
+                if (config.install.installLoader) {                // ③ 先装 loader，失败即中止（模组一个都不下载）
+                    loaderManager.installLoader(config.install.baseInstallPath, versions.loaderVersion, versions.mcVersion)
+                }
+                packtype.installPack(zip)                          // ④ 解压 + 模组
+            } else if (config.install.installLoader) {
+                loaderManager.installLoader(config.install.baseInstallPath, config.install.loaderVersion, config.install.mcVersion)
+            }
+            // LockFile 写入时机与内容不变（§2.3）：packInstalled/packUrl 无条件写入
             lockFile.packInstalled = true
             lockFile.packUrl = config.install.modpackUrl
             saveLockFile(lockFile)
-
-
-            if (config.install.installLoader) {
-                val forgeVersion = packtype.getLoaderVersion()
-                val mcVersion = packtype.getMCVersion()
-                loaderManager.installLoader(config.install.baseInstallPath, forgeVersion, mcVersion)
-            }
 
             if (config.launch.spongefix) {
                 lockFile.spongeBootstrapper = loaderManager.installSpongeBootstrapper(config.install.baseInstallPath)

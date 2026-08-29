@@ -107,19 +107,6 @@ object InstallerJsonExtractor {
         return group.replace('.', '/') + '/' + artifact + '/' + version + '/' + fileName
     }
 
-    /** 语义化 MC 版本比较：按 '.' 分段数值比较，缺失段视为 0（如 1.21 < 1.21.1 → 负数）。 */
-//    fun compareMcVersion(a: String, b: String): Int {
-//        val pa = a.split('.').map { it.toIntOrNull() ?: 0 }
-//        val pb = b.split('.').map { it.toIntOrNull() ?: 0 }
-//        val len = maxOf(pa.size, pb.size)
-//        for (i in 0 until len) {
-//            val x = if (i < pa.size) pa[i] else 0
-//            val y = if (i < pb.size) pb[i] else 0
-//            if (x != y) return x.compareTo(y)
-//        }
-//        return 0
-//    }
-
     private fun hasProcessors(profile: JsonObject): Boolean {
         val processors = profile.get("processors")
         return processors != null && processors.isJsonArray && processors.asJsonArray.size() > 0

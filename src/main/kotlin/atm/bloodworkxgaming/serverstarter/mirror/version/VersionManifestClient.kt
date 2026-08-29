@@ -1,12 +1,12 @@
 package atm.bloodworkxgaming.serverstarter.mirror.version
 
+import atm.bloodworkxgaming.serverstarter.InternetManager
 import atm.bloodworkxgaming.serverstarter.ServerStarter.Companion.LOGGER
 import atm.bloodworkxgaming.serverstarter.mirror.download.DownloadProvider
 import atm.bloodworkxgaming.serverstarter.mirror.installer.DownloadFailedException
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import okhttp3.OkHttpClient
-import okhttp3.Request
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 
@@ -69,7 +69,7 @@ class VersionManifestClient(private val httpClient: OkHttpClient, private val pr
         var lastError: Throwable? = null
         for (url in provider.getVersionListURLs()) {
             try {
-                val text = getBody(url)
+                val text = InternetManager.get(httpClient, url)
                 val parsed = JsonParser.parseString(text)
                 if (parsed.isJsonObject) return parsed.asJsonObject
                 throw IOException("版本清单 JSON 不是对象: $url")
@@ -104,7 +104,7 @@ class VersionManifestClient(private val httpClient: OkHttpClient, private val pr
         var lastError: Throwable? = null
         for (candidate in provider.injectURLWithCandidates(url)) {
             try {
-                val text = getBody(candidate)
+                val text = InternetManager.get(httpClient, candidate)
                 val parsed = JsonParser.parseString(text)
                 if (parsed.isJsonObject) return parsed.asJsonObject
                 throw IOException("版本信息 JSON 不是对象: $candidate")
@@ -143,19 +143,5 @@ class VersionManifestClient(private val httpClient: OkHttpClient, private val pr
             }
         }
         return VanillaVersionInfo(mcVersion, serverUrl, serverSha1, serverSize, mappingsUrl, mappingsSha1)
-    }
-
-    // ---------- HTTP ----------
-
-    /** GET 并读 body 文本；非 2xx / 无 body → IOException。不依赖 Content-Type（镜像可能返回 octet-stream）。 */
-    private fun getBody(url: String): String {
-        val request = Request.Builder().url(url).get().build()
-        httpClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                throw IOException("HTTP error code: ${response.code} for $url")
-            }
-            val body = response.body ?: throw IOException("Message body was null for $url")
-            return body.string()
-        }
     }
 }

@@ -3,6 +3,7 @@ package atm.bloodworkxgaming.serverstarter
 import atm.bloodworkxgaming.serverstarter.ServerStarter.Companion.LOGGER
 import atm.bloodworkxgaming.serverstarter.config.AdditionalFile
 import atm.bloodworkxgaming.serverstarter.config.ConfigFile
+import atm.bloodworkxgaming.serverstarter.util.ByteProgressReporter
 import org.apache.commons.io.FileUtils
 import java.io.File
 import java.io.IOException
@@ -28,7 +29,7 @@ class FileManager(private val configFile: ConfigFile, private val internetManage
     private fun handleAdditionalFile(file: AdditionalFile, fallbackList: MutableList<AdditionalFile>) {
         LOGGER.info("Starting to download $file")
         try {
-            internetManager.downloadToFile(file.url, File(configFile.install.baseInstallPath + file.destination))
+            internetManager.downloadToFile(file.url, File(configFile.install.baseInstallPath + file.destination), ByteProgressReporter())
         } catch (e: IOException) {
             LOGGER.error("Failed to download additional file", e)
             fallbackList.add(file)

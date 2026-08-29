@@ -2,8 +2,12 @@ package atm.bloodworkxgaming.serverstarter
 
 import atm.bloodworkxgaming.serverstarter.ServerStarter.Companion.LOGGER
 import atm.bloodworkxgaming.serverstarter.config.ConfigFile
+import atm.bloodworkxgaming.serverstarter.util.AppVersion
+import atm.bloodworkxgaming.serverstarter.util.ByteProgressReporter
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okio.buffer
 import okio.sink
 import java.io.File
@@ -16,7 +20,23 @@ class InternetManager(private val configFile: ConfigFile) {
          * 下载请求 User-Agent。部分镜像/CDN（实测 BMCLAPI→USTC 重定向目标）会拒绝 OkHttp 默认
          * "okhttp/x.y.z" UA（403），必须使用自有 UA（HMCL 同款风格）。
          */
-        const val USER_AGENT = "ServerStarter/2.4.2"
+        val USER_AGENT = "ServerStarter/${AppVersion.version}"
+
+        /**
+         * GET 并读 body 文本；非 2xx / 无 body → IOException。
+         * 供无 InternetManager 实例的调用方使用（如 VersionManifestClient）。
+         */
+        @Throws(IOException::class)
+        fun get(client: OkHttpClient, url: String): String {
+            val request = Request.Builder().url(url).get().build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    throw IOException("HTTP error code: ${response.code} for $url")
+                }
+                val body = response.body ?: throw IOException("Message body was null for $url")
+                return body.string()
+            }
+        }
     }
 
     val httpClient = OkHttpClient.Builder()
@@ -73,8 +93,35 @@ class InternetManager(private val configFile: ConfigFile) {
     }
 
 
+    /** GET 并读 body 文本；非 2xx / 无 body → IOException。 */
     @Throws(IOException::class)
-    fun downloadToFile(url: String, dest: File) {
+    fun get(url: String): String = get(httpClient, url)
+
+    /**
+     * POST JSON；Content-Type: application/json。传入 headers 追加（不覆盖 Content-Type）。
+     * 非 2xx / 无 body → IOException。
+     */
+    @Throws(IOException::class)
+    fun postJson(url: String, jsonBody: String, headers: Map<String, String> = emptyMap()): String {
+        val builder = Request.Builder()
+            .url(url)
+            .post(jsonBody.toRequestBody("application/json".toMediaType()))
+        for ((key, value) in headers) {
+            if (!key.equals("Content-Type", ignoreCase = true)) {
+                builder.header(key, value)
+            }
+        }
+        httpClient.newCall(builder.build()).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw IOException("HTTP error code: ${response.code} for $url")
+            }
+            val body = response.body ?: throw IOException("Message body was null for $url")
+            return body.string()
+        }
+    }
+
+    @Throws(IOException::class)
+    fun downloadToFile(url: String, dest: File, progress: ByteProgressReporter? = null) {
         val req = Request.Builder()
             .url(url)
             .get()
@@ -86,11 +133,23 @@ class InternetManager(private val configFile: ConfigFile) {
         val source = res.body?.source()
         source ?: throw IOException("Message body or source from $url was null")
 
+        progress?.onStart(res.body?.contentLength()?.takeIf { it >= 0 })
         source.use {
             dest.parentFile?.mkdirs()
             dest.sink().buffer().use {
-                it.writeAll(source)
+                if (progress != null) {
+                    val buf = ByteArray(8192)
+                    while (true) {
+                        val n = source.read(buf, 0, buf.size)
+                        if (n < 0) break
+                        it.write(buf, 0, n)
+                        progress.addBytes(n.toLong())
+                    }
+                } else {
+                    it.writeAll(source)
+                }
             }
         }
+        progress?.finish()
     }
 }
