@@ -164,8 +164,7 @@ class ServerStarter(args: Array<String>) {
             val packtype = IPackType.createPackType(config.install.modpackFormat, config, internetManager)
                     ?: throw InitException("Unknown pack format given in config, shutting down.")
             if (config.install.modpackFormat == "modrinth"){
-                LOGGER.warn("Which mod supports server-side depends on the setting of the modpack's auther.\n" +
-                        "You may need to delete or add some mods")
+                LOGGER.info("Client-only mods are filtered automatically.")
             }
             if (config.install.modpackUrl.isNotEmpty()) {
                 val zip = packtype.obtainPack()                    // ① 下载/定位整合包 zip
@@ -196,7 +195,7 @@ class ServerStarter(args: Array<String>) {
             // （curse 下载阶段已有 CF 三态预过滤；此处为最终兜底：TOML 规则 + CF 冲突仲裁）
             ClientOnlyModFilter.removeClientOnlyMods(
                     File(config.install.normalizedInstallPath + "mods/"),
-                    packtype.cfVerdictsByFile
+                    packtype.apiVerdictsByFile
             )
 
 

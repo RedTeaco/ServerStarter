@@ -5,7 +5,7 @@ import atm.bloodworkxgaming.serverstarter.InternetManager
 import atm.bloodworkxgaming.serverstarter.ServerStarter
 import atm.bloodworkxgaming.serverstarter.config.ConfigFile
 import atm.bloodworkxgaming.serverstarter.util.ByteProgressReporter
-import atm.bloodworkxgaming.serverstarter.util.CfVerdict
+import atm.bloodworkxgaming.serverstarter.util.ApiVerdict
 import java.io.File
 import java.io.IOException
 import java.nio.file.FileSystems
@@ -15,11 +15,11 @@ abstract class AbstractZipbasedPackType(private val configFile: ConfigFile, prot
     protected val basePath = configFile.install.normalizedInstallPath
 
     /**
-     * 平台 API 下载阶段对每个下载文件的 CF 三态判定（文件名 → CfVerdict）。
+     * 平台 API 下载阶段对每个下载文件的 CF 三态判定（文件名 → ApiVerdict）。
      * 参与安装后 jar 扫描的综合决策；仅 curse 子类在下载时填充，zip 包型无平台数据保持空。
      */
-    protected val cfVerdictsByFileMutable = mutableMapOf<String, CfVerdict>()
-    override val cfVerdictsByFile: Map<String, CfVerdict> get() = cfVerdictsByFileMutable
+    protected val apiVerdictsByFileMutable = mutableMapOf<String, ApiVerdict>()
+    override val apiVerdictsByFile: Map<String, ApiVerdict> get() = apiVerdictsByFileMutable
 
     /**
      * ① 下载（或本地定位）整合包 zip。
@@ -45,7 +45,7 @@ abstract class AbstractZipbasedPackType(private val configFile: ConfigFile, prot
         val newestZip = cwd.listFiles { f -> f.isFile && f.name.endsWith(".zip", ignoreCase = true) }
                 ?.maxByOrNull { it.lastModified() }
                 ?: throw InitException("未在 ${cwd.absolutePath} 找到整合包 zip，请放置 *.zip 后重试")
-        ServerStarter.LOGGER.info("使用本地整合包 zip: " + newestZip.absolutePath)
+        ServerStarter.LOGGER.info("Using local modpack zip: " + newestZip.absolutePath)
         return newestZip
     }
 
@@ -113,7 +113,7 @@ abstract class AbstractZipbasedPackType(private val configFile: ConfigFile, prot
         val manifest = manifestValue
         if (manifest != null && manifest.isNotEmpty()) {
             if (yamlValue.isNotEmpty() && yamlValue != manifest) {
-                ServerStarter.LOGGER.warn("yaml $versionName 版本 $yamlValue 被整合包版本 $manifest 覆盖")
+                ServerStarter.LOGGER.warn("yaml $versionName version $yamlValue is overridden by modpack version $manifest")
             }
             return manifest
         }

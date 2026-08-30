@@ -6,7 +6,7 @@ import atm.bloodworkxgaming.serverstarter.packtype.curse.CurseIDPackType
 import atm.bloodworkxgaming.serverstarter.packtype.curse.CursePackType
 import atm.bloodworkxgaming.serverstarter.packtype.modrinth.ModrinthPackType
 import atm.bloodworkxgaming.serverstarter.packtype.zip.ZipFilePackType
-import atm.bloodworkxgaming.serverstarter.util.CfVerdict
+import atm.bloodworkxgaming.serverstarter.util.ApiVerdict
 import java.io.File
 
 /**
@@ -51,10 +51,10 @@ interface IPackType {
     fun installPack(zip: File)
 
     /**
-     * 平台 API 下载阶段对每个下载文件的 CF 三态判定（文件名 → CfVerdict）。
+     * 平台 API 下载阶段对每个下载文件的 CF 三态判定（文件名 → ApiVerdict）。
      * 参与安装后 jar 扫描的综合决策（与 TOML 规则冲突时提示用户仲裁）；
-     * 仅 curse 子类在下载时填充（缺省/双端），modrinth / zip 包型无 CF 数据保持空。
+     * 仅 curse 子类在下载时填充（缺省/双端），modrinth / zip 包型无 API 数据保持空。
      */
-    val cfVerdictsByFile: Map<String, CfVerdict>
+    val apiVerdictsByFile: Map<String, ApiVerdict>
         get() = emptyMap()
 }

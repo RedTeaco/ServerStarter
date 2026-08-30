@@ -14,7 +14,8 @@ modpack:
 # settings regarding the installation of the modpack
 install:
   # version of minecraft, needs the exact version
-  mcVersion: 1.21.1
+  # if this value is a null value so ( ~, null, or "" ) then the version from the mod pack is going to be used
+  mcVersion: ~
 
   # exact version of forge or fabric that is supposed to be used
   # if this value is a null value so ( ~, null, or "" ) then the version from the mod pack is going to be used
@@ -54,8 +55,9 @@ install:
   # Link to where the file where the modpack can be distributed
   # This supports loading from local files as well for most pack types if there is file://{PathToFile} in the beginning
   # Note: file://{PathToFile} does not need the full path, can be a relative path.
-  # E.g: modpackUrl: file://../modpacks/All+the+Mods+7-0.0.21.zip
-  modpackUrl:
+  # E.g: modpackUrl: file://./modpacks/All+the+Mods+7-0.0.21.zip
+  # modpackUrl: "./.zip" means using the zip file located in the same directory.
+  modpackUrl: "./.zip"
 
   # This is used to specify in which format the modpack is distributed, the server launcher has to handle each individually if their format differs
   # current supported formats:
@@ -68,12 +70,13 @@ install:
   # Settings which are specific to the format used, might not be needed in some casese
   formatSpecific:
     # optional paramenter used for curse to specify a whole project to ignore (mostly if it is client side only)
+    # keep in mind it often need ' - ' in front of it to work
     # e.g.
     # - 263420
     # - 317780
     # - 232131
     ignoreProject:
-      - 1254143 # colorwheel cannot auto detected
+      -
 
   # The base path where the server should be installed to, ~ for current path
   baseInstallPath: ~

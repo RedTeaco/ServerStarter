@@ -16,7 +16,7 @@ import java.util.jar.JarFile
  *
  * [display] 用于冲突提示文案（统一英文，避免中文乱码）。
  */
-enum class CfVerdict(val display: String) {
+enum class ApiVerdict(val display: String) {
     DEFAULT("default"),
     CLIENT_ONLY("CLIENT"),
     DUAL("BOTH")
@@ -78,13 +78,13 @@ object ClientOnlyModFilter {
     /**
      * 扫描 mods/ 顶层目录（仅直接子级 *.jar），删除客户端专用模组。
      *
-     * @param cfVerdicts 平台 API 下载阶段的 CF 三态判定（文件名 → CfVerdict）；
+     * @param apiVerdicts 平台 API 下载阶段的 CF 三态判定（文件名 → ApiVerdict）；
      *                   仅 curse 来源填充，modrinth/zip/本地文件缺省（按 TOML 规则独断）。
      * @param input 用户输入读取函数（默认 readLine），测试可注入脚本化输入。
      */
     fun removeClientOnlyMods(
             modsDir: File,
-            cfVerdicts: Map<String, CfVerdict> = emptyMap(),
+            apiVerdicts: Map<String, ApiVerdict> = emptyMap(),
             input: () -> String? = ::readLine
     ) {
         val files = modsDir.listFiles()
@@ -105,7 +105,7 @@ object ClientOnlyModFilter {
                 continue
             }
 
-            val cf = cfVerdicts[jar.name]
+            val cf = apiVerdicts[jar.name]
             if (metadata.verdictOf() == Verdict.UNKNOWN) {
                 LOGGER.info("Unable to determine mod environment, keeping: " + jar.name)
             }
@@ -130,13 +130,13 @@ object ClientOnlyModFilter {
      * - TOML：CLIENT_ONLY 时按 CF 判定——无 CF → 删；CF=CLIENT_ONLY → 删（一致，防御分支）；
      *   CF=缺省/双端 → 冲突提示；TOML 非 CLIENT → 保留。
      */
-    private fun decideToDelete(jar: File, metadata: JarMetadata, cf: CfVerdict?, input: () -> String?): Boolean {
+    private fun decideToDelete(jar: File, metadata: JarMetadata, cf: ApiVerdict?, input: () -> String?): Boolean {
         return when (metadata) {
             is JarMetadata.Fabric -> metadata.verdict.verdict == Verdict.CLIENT_ONLY
             is JarMetadata.Toml -> when (metadata.verdict.verdict) {
                 Verdict.CLIENT_ONLY -> when (cf) {
                     null -> true
-                    CfVerdict.CLIENT_ONLY -> true
+                    ApiVerdict.CLIENT_ONLY -> true
                     else -> askUserDelete(cf, jar.name, input)
                 }
                 else -> false
@@ -149,7 +149,7 @@ object ClientOnlyModFilter {
      * 冲突仲裁：LOGGER 青色提示（与 EULA 交互一致），Y=删除、N=保留、
      * 其他字符提示非法并重问；EOF（null）→ 默认保留（fail-safe）。
      */
-    private fun askUserDelete(cf: CfVerdict, jarName: String, input: () -> String?): Boolean {
+    private fun askUserDelete(cf: ApiVerdict, jarName: String, input: () -> String?): Boolean {
         while (true) {
             LOGGER.info(ansi().fgCyan().a("API returns " + cf.display + ", but toml returns CLIENT. Please choose whether to delete this mod [Y/N]: "))
             val answer = input()?.trim()
