@@ -40,8 +40,10 @@ open class ModrinthPackType(private val configFile: ConfigFile, internetManager:
      * 从 zip 内 modrinth.index.json 解析原始版本（Q3 的 manifest 侧输入）。
      *
      * 注意：mcVersion 按字符串读取（修复既有 getAsJsonArray("minecraft").asString 对真实
-     * mrpack 抛 ClassCastException 的 bug）；loader 取 dependencies 中 minecraft 之后的
-     * 下一个键（保持既有 keySet().last() "第二个键即 loader" 语义，实现空安全）。
+     * mrpack 抛 ClassCastException 的 bug）；loader 提取与 dependencies 键序无关（修复
+     * bettermc.mrpack 类问题：键序不保证 minecraft 在最后）：已知 loader 键名
+     * （fabric-loader/quilt-loader/forge/neoforge，大小写不敏感）优先，多个已知键取第一个
+     * 并 warn；无已知键回退第一个非 minecraft 且值为字符串的键；都没有则 null（yaml 兜底）。
      */
     @Throws(IOException::class)
     override fun readManifestVersions(zip: File): ManifestVersions? {
@@ -54,7 +56,26 @@ open class ModrinthPackType(private val configFile: ConfigFile, internetManager:
                         ?: return ManifestVersions(null, null)
 
                 val mc = deps.get("minecraft")?.takeIf { it.isJsonPrimitive }?.asString
-                val loaderKey = deps.keySet().lastOrNull()?.takeIf { it != "minecraft" }
+
+                // loader 键识别（键序无关）：
+                // 1) 已知 loader 键名优先；多个已知键 → 取第一个并 warn
+                // 2) 无已知键 → 回退第一个非 minecraft 且值为字符串的键
+                // 3) 都没有 → null（走 yaml loaderVersion 兜底）
+                val knownLoaderKeys = listOf("fabric-loader", "quilt-loader", "forge", "neoforge")
+                var loaderKey: String? = null
+                for (key in deps.keySet()) {
+                    if (knownLoaderKeys.any { it.equals(key, ignoreCase = true) }) {
+                        if (loaderKey == null) {
+                            loaderKey = key
+                        } else {
+                            LOGGER.warn("modrinth.index.json declares multiple loader keys ($loaderKey, $key, ...), using the first: $loaderKey")
+                            break
+                        }
+                    }
+                }
+                if (loaderKey == null) {
+                    loaderKey = deps.keySet().firstOrNull { key -> key != "minecraft" && deps.get(key)?.isJsonPrimitive == true }
+                }
                 val loader = loaderKey?.let { key -> deps.get(key)?.takeIf { it.isJsonPrimitive }?.asString }
 
                 return ManifestVersions(mc, loader)
@@ -80,7 +101,8 @@ open class ModrinthPackType(private val configFile: ConfigFile, internetManager:
                 if (obj.getAsJsonPrimitive("path").asString.substringBefore("/") != "mods") {
                     continue
                 } else {
-                    modsUrl.add(obj.getAsJsonArray("downloads").get(0).asString)
+                    val url = obj.getAsJsonArray("downloads").get(0).asString
+                    modsUrl.add(url)
                 }
             }
         }

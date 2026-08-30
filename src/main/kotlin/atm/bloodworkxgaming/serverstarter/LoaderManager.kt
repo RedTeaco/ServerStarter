@@ -226,7 +226,7 @@ class LoaderManager(private val configFile: ConfigFile, private val internetMana
                 *configFile.install.installerArguments.toTypedArray()
             )
                 .inheritIO()
-                .directory(File("$basePath."))
+                .directory(File(basePath))
                 .start()
 
 
@@ -250,7 +250,7 @@ class LoaderManager(private val configFile: ConfigFile, private val internetMana
      */
     private fun mirrorInstall(basePath: String, installerUrl: String, loaderVersion: String, mcVersion: String) {
         val provider = DownloadProviders.create(configFile.install.downloadSource, configFile.install.mirrorUrl)
-        val installRoot = resolveInstallRoot(basePath)
+        val installRoot = File(basePath)
             LOGGER.info("install dir: ${installRoot.absolutePath}")
         val installerFile = File.createTempFile("serverstarter-installer", ".jar")
         try {
@@ -272,27 +272,6 @@ class LoaderManager(private val configFile: ConfigFile, private val internetMana
             installer.install(plan, installRoot, installerFile, provider)
         } finally {
             // installerFile.delete()
-        }
-    }
-
-    /**
-     * 安装根目录解析：baseInstallPath 非空 → 按其解析；为空 → 锚定到**正在运行的 jar 所在目录**
-     * （而非进程工作目录 CWD），避免因启动目录不同导致 libraries/ 等文件散落到任意位置。
-     * jar 目录取 codeSource（打包运行 = jar 文件所在目录；IDE/测试 = classes 目录）。
-     */
-    private fun resolveInstallRoot(basePath: String): File {
-        if (basePath.isNotBlank()) return File(basePath)
-        return try {
-            val location = ServerStarter::class.java.protectionDomain?.codeSource?.location
-            val file = location?.let { File(it.toURI()) }
-            when {
-                file == null -> File("")
-                file.isDirectory -> file
-                else -> file.parentFile ?: File("")
-            }
-        } catch (e: Exception) {
-            LOGGER.warn("Unable to resolve the JAR directory, falling back to the current working directory. ${e.message}")
-            File("")
         }
     }
 
@@ -331,7 +310,7 @@ class LoaderManager(private val configFile: ConfigFile, private val internetMana
                     replacePlaceholders(configFile.launch.startFile)
                 }
 
-            val launchJar = File(configFile.install.baseInstallPath + filename)
+            val launchJar = File(configFile.install.normalizedInstallPath + filename)
             val arguments = mutableListOf<String>()
             val ramPreArguments = mutableListOf<String>()
             val ramPostArguments = mutableListOf<String>()
@@ -471,7 +450,7 @@ class LoaderManager(private val configFile: ConfigFile, private val internetMana
     private fun startAndWaitForProcess(args: List<String>) {
         ProcessBuilder(args).apply {
             inheritIO()
-            directory(File(configFile.install.baseInstallPath + "."))
+            directory(File(configFile.install.normalizedInstallPath))
             start().apply {
                 runningProcesses.add(this)
 

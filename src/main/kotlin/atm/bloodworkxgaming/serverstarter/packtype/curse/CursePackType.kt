@@ -7,6 +7,7 @@ import atm.bloodworkxgaming.serverstarter.packtype.AbstractZipbasedPackType
 import atm.bloodworkxgaming.serverstarter.packtype.ManifestVersions
 import atm.bloodworkxgaming.serverstarter.util.ModDownloader
 import atm.bloodworkxgaming.serverstarter.util.ZipExtractor
+import atm.bloodworkxgaming.serverstarter.util.CfVerdict
 import com.google.gson.Gson
 import com.google.gson.JsonParser
 import java.io.File
@@ -112,6 +113,17 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
         val data: List<GetFilesResponseMod>
     )
 
+    /** CF 三态判定：gameVersions 忽略大小写包含判断（缺省/仅客户端/双端）。 */
+    private fun cfVerdict(gameVersions: List<String>?): CfVerdict {
+        val hasClient = gameVersions?.any { it.equals("client", ignoreCase = true) } == true
+        val hasServer = gameVersions?.any { it.equals("server", ignoreCase = true) } == true
+        return when {
+            hasClient && !hasServer -> CfVerdict.CLIENT_ONLY
+            hasClient && hasServer -> CfVerdict.DUAL
+            else -> CfVerdict.DEFAULT
+        }
+    }
+
     private fun requestModInformation(mods: List<ModEntryRaw>, ignoreSet: HashSet<String>): GetFilesResponse {
         LOGGER.info("Requesting Download links from curse api.")
 
@@ -144,12 +156,11 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
                 val isIgnoredById = ignoreSet.contains(mod.modId.toString())
                 // 2. 非 jar 文件（比如资源包）
                 val isNotJar = !mod.fileName.endsWith(".jar")
-                // 3. 判断是否为客户端专用（包含 Client 且不包含 Server）
-                val gameVersions = mod.gameVersions
-                val isClientOnly = gameVersions?.contains("Client") == true && gameVersions?.contains("Server") != true
+                // 3. CF 三态判定：仅客户端（含 Client 且不含 Server，忽略大小写）不下载
+                val verdict = cfVerdict(mod.gameVersions)
 
-                // 保留条件：非忽略、是 jar、且不是客户端专用
-                !isIgnoredById && !isNotJar && !isClientOnly
+                // 保留条件：非忽略、是 jar、且不是仅客户端
+                !isIgnoredById && !isNotJar && verdict != CfVerdict.CLIENT_ONLY
             }
         // ignore resource pack and shader pack
         val ignoredMods = jsonRes.data.distinct().toList().filter { it !in filteredMods }
@@ -181,6 +192,9 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
         val urls = ConcurrentLinkedQueue<String>()
         val modsInformation = requestModInformation(mods, ignoreSet)
         modsInformation.data.forEach { mod ->
+            // 记录 CF 三态判定（fileName → CfVerdict）。过滤后保留的只可能是缺省/双端，
+            // 供安装后 jar 扫描与 TOML 规则做综合决策（冲突时提示用户）。
+            cfVerdictsByFileMutable[mod.fileName] = cfVerdict(mod.gameVersions)
             if (mod.downloadUrl != null) {
                 urls.add(mod.downloadUrl)
             } else {

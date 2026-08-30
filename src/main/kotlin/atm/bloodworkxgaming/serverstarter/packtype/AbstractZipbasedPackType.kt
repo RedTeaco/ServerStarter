@@ -5,13 +5,21 @@ import atm.bloodworkxgaming.serverstarter.InternetManager
 import atm.bloodworkxgaming.serverstarter.ServerStarter
 import atm.bloodworkxgaming.serverstarter.config.ConfigFile
 import atm.bloodworkxgaming.serverstarter.util.ByteProgressReporter
+import atm.bloodworkxgaming.serverstarter.util.CfVerdict
 import java.io.File
 import java.io.IOException
 import java.nio.file.FileSystems
 import java.nio.file.PathMatcher
 
 abstract class AbstractZipbasedPackType(private val configFile: ConfigFile, protected val internetManager: InternetManager) : IPackType {
-    protected val basePath = configFile.install.baseInstallPath
+    protected val basePath = configFile.install.normalizedInstallPath
+
+    /**
+     * 平台 API 下载阶段对每个下载文件的 CF 三态判定（文件名 → CfVerdict）。
+     * 参与安装后 jar 扫描的综合决策；仅 curse 子类在下载时填充，zip 包型无平台数据保持空。
+     */
+    protected val cfVerdictsByFileMutable = mutableMapOf<String, CfVerdict>()
+    override val cfVerdictsByFile: Map<String, CfVerdict> get() = cfVerdictsByFileMutable
 
     /**
      * ① 下载（或本地定位）整合包 zip。

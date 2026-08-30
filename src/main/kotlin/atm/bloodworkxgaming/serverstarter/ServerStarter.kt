@@ -5,6 +5,7 @@ import atm.bloodworkxgaming.serverstarter.config.LockFile
 import atm.bloodworkxgaming.serverstarter.logger.PrimitiveLogger
 import atm.bloodworkxgaming.serverstarter.packtype.IPackType
 import atm.bloodworkxgaming.serverstarter.util.AppVersion
+import atm.bloodworkxgaming.serverstarter.util.ClientOnlyModFilter
 import atm.bloodworkxgaming.serverstarter.yaml.CustomConstructor
 import org.apache.commons.io.FileUtils
 import org.fusesource.jansi.Ansi.ansi
@@ -170,11 +171,11 @@ class ServerStarter(args: Array<String>) {
                 val zip = packtype.obtainPack()                    // ① 下载/定位整合包 zip
                 val versions = packtype.resolveVersions(zip)       // ② 从 zip 解析最终生效版本（不落盘）
                 if (config.install.installLoader) {                // ③ 先装 loader，失败即中止（模组一个都不下载）
-                    loaderManager.installLoader(config.install.baseInstallPath, versions.loaderVersion, versions.mcVersion)
+                    loaderManager.installLoader(config.install.normalizedInstallPath, versions.loaderVersion, versions.mcVersion)
                 }
                 packtype.installPack(zip)                          // ④ 解压 + 模组
             } else if (config.install.installLoader) {
-                loaderManager.installLoader(config.install.baseInstallPath, config.install.loaderVersion, config.install.mcVersion)
+                loaderManager.installLoader(config.install.normalizedInstallPath, config.install.loaderVersion, config.install.mcVersion)
             }
             // LockFile 写入时机与内容不变（§2.3）：packInstalled/packUrl 无条件写入
             lockFile.packInstalled = true
@@ -182,7 +183,7 @@ class ServerStarter(args: Array<String>) {
             saveLockFile(lockFile)
 
             if (config.launch.spongefix) {
-                lockFile.spongeBootstrapper = loaderManager.installSpongeBootstrapper(config.install.baseInstallPath)
+                lockFile.spongeBootstrapper = loaderManager.installSpongeBootstrapper(config.install.normalizedInstallPath)
                 saveLockFile(lockFile)
             }
 
@@ -190,6 +191,13 @@ class ServerStarter(args: Array<String>) {
             val fileManager = FileManager(config, internetManager)
             fileManager.installAdditionalFiles()
             fileManager.installLocalFiles()
+
+            // 客户端模组清理：安装末尾扫描 mods/ 目录，删除客户端专用模组。
+            // （curse 下载阶段已有 CF 三态预过滤；此处为最终兜底：TOML 规则 + CF 冲突仲裁）
+            ClientOnlyModFilter.removeClientOnlyMods(
+                    File(config.install.normalizedInstallPath + "mods/"),
+                    packtype.cfVerdictsByFile
+            )
 
 
         } else {

@@ -1,5 +1,6 @@
 package atm.bloodworkxgaming.serverstarter.config
 
+import java.io.File
 import java.util.*
 
 fun processString(s: String): String {
@@ -89,6 +90,22 @@ data class InstallConfig(
     fun <T> getFormatSpecificSettingOrDefault(name: String, fallback: T?): T? {
         return formatSpecific.getOrDefault(name, fallback) as T?
     }
+
+    /**
+     * 归一化安装路径：空/空白 → "." + File.separator（当前目录，作为 File(parent, child) 的 parent 时
+     * 永不为空——空 parent 在 Windows 上会被解析为当前盘根，导致解压等文件散落到盘根）；
+     * 非空 → 确保以结尾分隔符收尾（避免 "basePath + \"mods/\"" 拼出 "...serverStarterTestmods/"）。
+     * 所有落盘路径（解压、模组下载、loader 安装、附加文件、启动 jar 等）统一使用该值。
+     */
+    val normalizedInstallPath: String
+        get() {
+            val raw = baseInstallPath.trim()
+            return when {
+                raw.isEmpty() -> "." + File.separator
+                raw.endsWith("/") || raw.endsWith("\\") -> raw
+                else -> raw + File.separator
+            }
+        }
 }
 
 data class ConfigFile(

@@ -29,7 +29,7 @@ class FileManager(private val configFile: ConfigFile, private val internetManage
     private fun handleAdditionalFile(file: AdditionalFile, fallbackList: MutableList<AdditionalFile>) {
         LOGGER.info("Starting to download $file")
         try {
-            internetManager.downloadToFile(file.url, File(configFile.install.baseInstallPath + file.destination), ByteProgressReporter())
+            internetManager.downloadToFile(file.url, File(configFile.install.normalizedInstallPath + file.destination), ByteProgressReporter())
         } catch (e: IOException) {
             LOGGER.error("Failed to download additional file", e)
             fallbackList.add(file)

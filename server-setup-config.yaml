@@ -72,7 +72,8 @@ install:
     # - 263420
     # - 317780
     # - 232131
-    ignoreProject: ~
+    ignoreProject:
+      - 1254143 # colorwheel cannot auto detected
 
   # The base path where the server should be installed to, ~ for current path
   baseInstallPath: ~
