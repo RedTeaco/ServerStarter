@@ -6,6 +6,8 @@ import atm.bloodworkxgaming.serverstarter.mirror.core.InstallerZip
 import atm.bloodworkxgaming.serverstarter.mirror.core.LibraryDownloadTask
 import atm.bloodworkxgaming.serverstarter.mirror.download.DownloadProvider
 import atm.bloodworkxgaming.serverstarter.mirror.version.VersionManifestClient
+import atm.bloodworkxgaming.serverstarter.util.ByteProgressReporter
+import atm.bloodworkxgaming.serverstarter.util.FileCountProgressReporter
 import okhttp3.OkHttpClient
 import java.io.File
 
@@ -37,7 +39,7 @@ internal class ThinInstallerEngine(
             val targets = plan.targets + DownloadTarget(plan.serverJarPath, serverUrl, serverSha1, null)
             LOGGER.info("Total downloads: ${targets.size}")
             LibraryDownloadTask(httpClient, minOf(provider.getConcurrency(), 8))
-                .downloadAll(targets, basePath, provider)
+                .downloadAll(targets, basePath, provider, FileCountProgressReporter(targets.size))
 
             // 3. 静态抽取（替代 EXTRACT_FILES，免一次 JVM）
             extractStaticFiles(plan, basePath, installerFile)
@@ -192,6 +194,6 @@ internal class ThinInstallerEngine(
         val info = VersionManifestClient(httpClient, provider).resolveVanillaVersion(mcVersion)
         val url = info.serverMappingsUrl
             ?: throw DownloadFailedException("vanilla server_mappings URL missing: $mcVersion")
-        LibraryDownloadTask(httpClient, 4).downloadToFile(url, target, provider, info.serverMappingsSha1)
+        LibraryDownloadTask(httpClient, 4).downloadToFile(url, target, provider, info.serverMappingsSha1, ByteProgressReporter())
     }
 }

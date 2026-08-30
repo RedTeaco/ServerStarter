@@ -10,16 +10,31 @@ import java.io.PrintWriter
 import java.io.StringWriter
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
-//TODO 目前日志记录、管理不完善-- 自动记录日志不全、不能多日志文件管理
 class PrimitiveLogger(outputFile: File) {
     private val pattern = "\\x1b\\[[0-9;]*m".toRegex()
     private val dateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss")
-    private val bufferedSink = outputFile.sink().buffer()
 
+    // 必须先删除旧日志文件，再打开 sink：Windows 上删除已被本 JVM 打开的文件会静默失败
     init {
         if (outputFile.exists()) {
             outputFile.delete()
         }
+    }
+
+    private val bufferedSink = outputFile.sink().buffer()
+
+    // JVM 退出兜底：把缓冲中的 info 尾部 flush 落盘并关闭 sink（LOGGER 为单例，只注册一次）
+    init {
+        Runtime.getRuntime().addShutdownHook(Thread {
+            synchronized(this) {
+                try {
+                    bufferedSink.flush()
+                    bufferedSink.close()
+                } catch (e: IOException) {
+                    // 吞掉，不干扰进程退出
+                }
+            }
+        })
     }
 
     @JvmOverloads
@@ -45,6 +60,7 @@ class PrimitiveLogger(outputFile: File) {
         synchronized(this) {
             try {
                 bufferedSink.writeUtf8(stripColors(m))
+                bufferedSink.flush()
             } catch (e: IOException) {
                 error("Error while logging!", e)
             }
@@ -65,6 +81,7 @@ class PrimitiveLogger(outputFile: File) {
         synchronized(this) {
             try {
                 bufferedSink.writeUtf8(stripColors(m))
+                bufferedSink.flush()
             } catch (e: IOException) {
                 System.err.println("Error while logging!")
                 e.printStackTrace()

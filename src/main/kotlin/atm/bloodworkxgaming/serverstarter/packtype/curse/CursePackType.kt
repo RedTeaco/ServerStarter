@@ -4,34 +4,26 @@ import atm.bloodworkxgaming.serverstarter.InternetManager
 import atm.bloodworkxgaming.serverstarter.ServerStarter.Companion.LOGGER
 import atm.bloodworkxgaming.serverstarter.config.ConfigFile
 import atm.bloodworkxgaming.serverstarter.packtype.AbstractZipbasedPackType
-import atm.bloodworkxgaming.serverstarter.packtype.writeToFile
-import com.fasterxml.jackson.databind.DeserializationFeature
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
-import com.fasterxml.jackson.module.kotlin.readValue
+import atm.bloodworkxgaming.serverstarter.packtype.ManifestVersions
+import atm.bloodworkxgaming.serverstarter.util.ModDownloader
+import atm.bloodworkxgaming.serverstarter.util.ZipExtractor
+import atm.bloodworkxgaming.serverstarter.util.ApiVerdict
+import atm.bloodworkxgaming.serverstarter.util.ModrinthIdentityLookup
+import com.google.gson.Gson
 import com.google.gson.JsonParser
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
-import org.apache.commons.io.FileUtils
-import org.apache.commons.io.FilenameUtils
 import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
 import java.io.InputStreamReader
-import java.net.URISyntaxException
 import java.nio.file.PathMatcher
-import java.nio.file.Paths
 import java.util.*
 import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.regex.Pattern
-import java.util.zip.ZipEntry
-import java.util.zip.ZipInputStream
+import java.util.zip.ZipFile
 import kotlin.collections.ArrayList
 
 open class CursePackType(private val configFile: ConfigFile, internetManager: InternetManager) : AbstractZipbasedPackType(configFile, internetManager) {
-    private var loaderVersion: String = configFile.install.loaderVersion
-    private var mcVersion: String = configFile.install.mcVersion
     private val oldFiles = File(basePath + "OLD_TO_DELETE/")
 
     override fun cleanUrl(url: String): String {
@@ -41,115 +33,68 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
         return url
     }
 
-    /**
-     * Gets the forge version, can be based on the version from the downloaded pack
-     *
-     * @return String representation of the version
-     */
-    override fun getLoaderVersion(): String {
-        return loaderVersion
-    }
-
-    /**
-     * Gets the forge version, can be based on the version from the downloaded pack
-     *
-     * @return String representation of the version
-     */
-    override fun getMCVersion(): String {
-        return mcVersion
-    }
-
     @Throws(IOException::class)
     override fun handleZip(file: File, pathMatchers: List<PathMatcher>) {
-        // delete old installer folder
-        FileUtils.deleteDirectory(oldFiles)
+        ZipExtractor(
+                basePath = basePath,
+                oldFiles = oldFiles,
+                pathMatchers = pathMatchers,
+                manifestEntryName = "manifest.json",
+                overridesPrefix = "overrides/",
+                moveModsFolderFirst = true,
+                rethrowOnError = true
+        ).extract(file)
+    }
 
-        // start with deleting the mods folder as it is not guaranteed to have override mods
-        val modsFolder = File(basePath + "mods/")
+    /**
+     * 从 zip 内 manifest.json 解析原始版本（Q3 的 manifest 侧输入）。
+     */
+    @Throws(IOException::class)
+    override fun readManifestVersions(zip: File): ManifestVersions? {
+        ZipFile(zip).use { zipFile ->
+            val entry = zipFile.getEntry("manifest.json") ?: return null
+            zipFile.getInputStream(entry).use { input ->
+                val json = JsonParser.parseReader(InputStreamReader(input, "utf-8")).asJsonObject
+                LOGGER.info("manifest JSON Object: $json", true)
+                val mcObj = json.get("minecraft")?.takeIf { it.isJsonObject }?.asJsonObject
+                        ?: return ManifestVersions(null, null)
 
-        if (modsFolder.exists())
-            FileUtils.moveDirectory(modsFolder, File(oldFiles, "mods"))
-        LOGGER.info("Moved the mods folder")
+                val mc = mcObj.get("version")?.takeIf { it.isJsonPrimitive }?.asString
+                val loader = mcObj.get("modLoaders")?.takeIf { it.isJsonArray }?.asJsonArray
+                        ?.takeIf { it.size() > 0 }?.get(0)?.asJsonObject
+                        ?.get("id")?.takeIf { it.isJsonPrimitive }?.asString
+                        ?.substringAfterLast("-")
 
-        LOGGER.info("Starting to unzip files.")
-        // unzip start
-        try {
-            ZipInputStream(FileInputStream(file)).use { zis ->
-                var entry: ZipEntry? = zis.nextEntry
-
-                loop@ while (entry != null) {
-                    LOGGER.info("Entry in zip: $entry", true)
-                    val name = entry.name
-
-                    // special manifest treatment
-                    if (name == "manifest.json")
-                        zis.writeToFile(File(basePath + "manifest.json"))
-
-
-                    // overrides
-                    if (name.startsWith("overrides/")) {
-                        val path = entry.name.substring(10)
-
-                        when {
-                            pathMatchers.any { it.matches(Paths.get(path)) } ->
-                                LOGGER.info("Skipping $path as it is on the ignore List.", true)
-
-
-                            !name.endsWith("/") -> {
-                                val outfile = File(basePath + path)
-                                LOGGER.info("Copying zip entry to = $outfile", true)
-
-
-                                outfile.parentFile?.mkdirs()
-
-                                zis.writeToFile(outfile)
-                            }
-
-                            name != "overrides/" -> {
-                                val newFolder = File(basePath + path)
-                                if (newFolder.exists())
-                                    FileUtils.moveDirectory(newFolder, File(oldFiles, path))
-
-                                LOGGER.info("Folder moved: " + newFolder.absolutePath, true)
-                            }
-                        }
-                    }
-
-                    entry = zis.nextEntry
-                }
-
-
-                zis.closeEntry()
+                return ManifestVersions(mc, loader)
             }
-        } catch (e: IOException) {
-            LOGGER.error("Could not unzip files", e)
-            throw e
         }
-
-        LOGGER.info("Done unzipping the files.")
     }
 
     @Throws(IOException::class)
     override fun postProcessing() {
+        if (!File(basePath + "manifest.json").exists()) {
+            LOGGER.info("Pack has no manifest.json, skipping mod download")
+            return
+        }
+
         val mods = ArrayList<ModEntryRaw>()
+
+        // 任务2：与文件解析同一遍顺带捕获 MC 版本与 loader 名（Modrinth 身份校验用）
+        var mcVersion: String? = null
+        var loaderName: String? = null
 
         InputStreamReader(FileInputStream(File(basePath + "manifest.json")), "utf-8").use { reader ->
             val json = JsonParser.parseReader(reader).asJsonObject
             LOGGER.info("manifest JSON Object: $json", true)
-            val mcObj = json.getAsJsonObject("minecraft")
 
-            if (mcVersion.isEmpty()) {
-                mcVersion = mcObj.getAsJsonPrimitive("version").asString
-            }
-
-            // gets the forge version
-            if (loaderVersion.isEmpty()) {
-                val loaders = mcObj.getAsJsonArray("modLoaders")
-                if (loaders.size() > 0) {
-                    val id = loaders[0].asJsonObject.getAsJsonPrimitive("id").asString
-                    loaderVersion = id.substringAfterLast("-")
-                }
-            }
+            // minecraft.version / minecraft.modLoaders[0].id（如 forge-43.1.1 → forge、neoforge-21.1.241 → neoforge、fabric-0.16.5 → fabric）
+            val mcObj = json.get("minecraft")?.takeIf { it.isJsonObject }?.asJsonObject
+            mcVersion = mcObj?.get("version")?.takeIf { it.isJsonPrimitive }?.asString
+            val loaderId = mcObj?.get("modLoaders")?.takeIf { it.isJsonArray }?.asJsonArray
+                    ?.firstOrNull { it.isJsonObject }
+                    ?.asJsonObject
+                    ?.get("id")?.takeIf { it.isJsonPrimitive }?.asString
+            loaderName = loaderId?.substringBefore("-")?.lowercase()
 
             // gets all the mods
             for (jsonElement in json.getAsJsonArray("files")) {
@@ -160,7 +105,7 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
             }
         }
 
-        downloadMods(mods)
+        downloadMods(mods, mcVersion, loaderName)
     }
 
     data class GetFilesResponseHashes(
@@ -183,38 +128,44 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
         val data: List<GetFilesResponseMod>
     )
 
+    /** CF 项目详情（GET /v1/mods/{modId} 的 data 段，任务2 名称降级路径用）。 */
+    private data class CfProjectInfo(val name: String, val authors: List<String>)
+
+    /** CF 三态判定：gameVersions 忽略大小写包含判断（缺省/仅客户端/双端）。 */
+    private fun apiVerdict(gameVersions: List<String>?): ApiVerdict {
+        val hasClient = gameVersions?.any { it.equals("client", ignoreCase = true) } == true
+        val hasServer = gameVersions?.any { it.equals("server", ignoreCase = true) } == true
+        return when {
+            hasClient && !hasServer -> ApiVerdict.CLIENT_ONLY
+            hasClient && hasServer -> ApiVerdict.DUAL
+            else -> ApiVerdict.DEFAULT
+        }
+    }
+
     private fun requestModInformation(mods: List<ModEntryRaw>, ignoreSet: HashSet<String>): GetFilesResponse {
         LOGGER.info("Requesting Download links from curse api.")
 
         data class GetModFilesRequestBody(val fileIds: List<String>)
         val fileList = GetModFilesRequestBody(mods.map { it.fileID }.toList())
-        //println(fileList)
 
-        val mapper = jacksonObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
-        val bodyJson = mapper.writeValueAsString(fileList)
+        val gson = Gson()
+        val bodyJson = gson.toJson(fileList)
         LOGGER.info("Request Body: $bodyJson", true)
 
-
         val url = "https://api.curseforge.com/v1/mods/files"
-        val request = Request.Builder()
-            .url(url)
-            .header("Content-Type", "application/json")
-            .header("Accept", "application/json")
-            .header("x-api-key", configFile.install.curseForgeApiKey)
-            .post(bodyJson.toRequestBody("application/json".toMediaType()))
-            .build()
-
-        val res = internetManager.httpClient.newCall(request).execute()
-
-        if (!res.isSuccessful)
-            throw IOException("Request to $url was not successful. Error Code: ${res.code}")
-        val body = res.body ?: throw IOException("Request to $url returned a null body.")
-
-        val str = body.string()
+        val str = internetManager.postJson(
+                url,
+                bodyJson,
+                mapOf(
+                        "Content-Type" to "application/json",
+                        "Accept" to "application/json",
+                        "x-api-key" to configFile.install.curseForgeApiKey
+                )
+        )
         LOGGER.info("Response Json from fileId query: ${str.length}", true)
         LOGGER.info("Response Json from fileId query: $str", true)
 
-        val jsonRes = mapper.readValue<GetFilesResponse>(str)
+        val jsonRes = gson.fromJson(str, GetFilesResponse::class.java)
         LOGGER.info("Converted Response from manifest query: $jsonRes", true)
 
         val filteredMods = jsonRes.data.distinct().toList()
@@ -223,12 +174,11 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
                 val isIgnoredById = ignoreSet.contains(mod.modId.toString())
                 // 2. 非 jar 文件（比如资源包）
                 val isNotJar = !mod.fileName.endsWith(".jar")
-                // 3. 判断是否为客户端专用（包含 Client 且不包含 Server）
-                val gameVersions = mod.gameVersions
-                val isClientOnly = gameVersions?.contains("Client") == true && gameVersions?.contains("Server") != true
+                // 3. CF 三态判定：仅客户端（含 Client 且不含 Server，忽略大小写）不下载
+                val verdict = apiVerdict(mod.gameVersions)
 
-                // 保留条件：非忽略、是 jar、且不是客户端专用
-                !isIgnoredById && !isNotJar && !isClientOnly
+                // 保留条件：非忽略、是 jar、且不是仅客户端
+                !isIgnoredById && !isNotJar && verdict != ApiVerdict.CLIENT_ONLY
             }
         // ignore resource pack and shader pack
         val ignoredMods = jsonRes.data.distinct().toList().filter { it !in filteredMods }
@@ -239,12 +189,128 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
     }
 
     /**
+     * 任务2：对 CF 缺省（default）模组做 Modrinth 跨平台身份预扫描（仅当 manifest 提供 MC 版本与 loader 时）。
+     *
+     * - HIGH（sha1 哈希反查 + 同 loader + 同 MC 版本）：命中且 environment=client_only →
+     *   标记跳过下载（不落盘、不记录判定）；命中但非 client_only → 保留下载。
+     * - MEDIUM/LOW（名称 + 作者 / 仅名称）：仅 LOGGER 提示，照常下载（fail-safe，绝不因弱匹配丢模组）。
+     * - 任何查询失败 → warn + 维持 default（fail-safe）。
+     */
+    private fun preScanModrinthIdentity(
+            mods: List<GetFilesResponseMod>,
+            mcVersion: String,
+            loaderName: String,
+            skipFileNames: MutableSet<String>
+    ) {
+        for (mod in mods) {
+            if (apiVerdict(mod.gameVersions) != ApiVerdict.DEFAULT) continue
+
+            LOGGER.info("CF file ${mod.fileName} has no client/server tags (default), checking Modrinth for identity...")
+
+            // HIGH 路径：CF sha1（algo=1 = Sha1，见 CurseForge API 文档）→ Modrinth v3 哈希反查
+            val sha1 = mod.hashes.firstOrNull { it.algo == 1 }?.value
+            val hashHit = if (sha1 != null) {
+                try {
+                    ModrinthIdentityLookup.lookupByHash(sha1, mcVersion, loaderName) { url -> internetManager.get(url) }
+                } catch (e: IOException) {
+                    LOGGER.warn("Modrinth lookup for ${mod.fileName} failed, keeping (fail-safe): ${e.message}")
+                    null
+                }
+            } else {
+                null
+            }
+
+            if (hashHit != null) {
+                LOGGER.info("Matched Modrinth version by file hash (loader=$loaderName, mc=$mcVersion): project=${hashHit.projectId} (${hashHit.versionName}), environment=${hashHit.environment ?: "null"}")
+                if (hashHit.environment != null && hashHit.environment.equals("client_only", ignoreCase = true)) {
+                    LOGGER.warn("Modrinth environment=client_only for ${mod.fileName} (verified by sha1 hash, loader=$loaderName, mc=$mcVersion) -> client-only, skipping download")
+                    skipFileNames.add(mod.fileName)
+                } else {
+                    LOGGER.info("Modrinth environment=${hashHit.environment ?: "null"} for ${mod.fileName} -> not client-only, keeping")
+                }
+                continue
+            }
+
+            // MEDIUM/LOW 路径：CF 项目名 + 作者（best-effort）→ Modrinth 搜索（仅日志，不处置）
+            val cfProject = try {
+                cfProjectInfo(mod.modId)
+            } catch (e: IOException) {
+                LOGGER.warn("CurseForge project info lookup for mod ${mod.modId} failed, keeping ${mod.fileName} as default: ${e.message}")
+                null
+            }
+
+            val nameMatch = if (cfProject != null) {
+                try {
+                    ModrinthIdentityLookup.lookupByName(cfProject.name, cfProject.authors, mcVersion, loaderName) { url -> internetManager.get(url) }
+                } catch (e: IOException) {
+                    LOGGER.warn("Modrinth lookup for ${mod.fileName} failed, keeping (fail-safe): ${e.message}")
+                    null
+                }
+            } else {
+                null
+            }
+
+            when {
+                nameMatch == null -> LOGGER.info("No Modrinth match for ${mod.fileName}, keeping as default")
+                nameMatch.authorMatched ->
+                    LOGGER.info("Matched Modrinth project by name/author: ${nameMatch.name} (${nameMatch.slug ?: "null"}), environment=${nameMatch.environment ?: "null"}; keeping ${mod.fileName}")
+                else ->
+                    LOGGER.warn("Possible but unverified Modrinth match (name only): ${nameMatch.name} (${nameMatch.slug ?: "null"}), environment=${nameMatch.environment ?: "null"}; keeping ${mod.fileName}")
+            }
+        }
+    }
+
+    /**
+     * 带 x-api-key 请求头的 CF GET（InternetManager.get 不支持自定义头）。
+     * 复用 httpClient 的 UA / 超时配置；非 2xx / 无 body → IOException。
+     */
+    @Throws(IOException::class)
+    private fun cfGet(url: String): String {
+        val request = Request.Builder()
+                .url(url)
+                .get()
+                .header("x-api-key", configFile.install.curseForgeApiKey)
+                .build()
+        internetManager.httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw IOException("HTTP error code: ${response.code} for $url")
+            }
+            val body = response.body ?: throw IOException("Message body was null for $url")
+            return body.string()
+        }
+    }
+
+    /**
+     * CF 项目详情（GET /v1/mods/{modId}）：解析 data.name（项目名，用于 Modrinth 搜索，非 displayName）
+     * 与 data.authors[].name。网络失败（IOException）向上抛出由调用方处理；响应解析失败 → warn + null（fail-safe）。
+     */
+    private fun cfProjectInfo(modId: Int): CfProjectInfo? {
+        val body = cfGet("https://api.curseforge.com/v1/mods/$modId")
+        return try {
+            val data = JsonParser.parseString(body).asJsonObject.getAsJsonObject("data")
+            val name = data.get("name")?.takeIf { it.isJsonPrimitive }?.asString?.trim() ?: ""
+            val authors = data.get("authors")?.takeIf { it.isJsonArray }?.asJsonArray
+                    ?.mapNotNull { element ->
+                        element.takeIf { it.isJsonObject }?.asJsonObject
+                                ?.get("name")?.takeIf { it.isJsonPrimitive }?.asString
+                    }
+                    ?: emptyList()
+            if (name.isEmpty()) null else CfProjectInfo(name, authors)
+        } catch (e: Exception) {
+            LOGGER.warn("Failed to parse CurseForge project info for mod $modId, keeping as default: ${e.message}")
+            null
+        }
+    }
+
+    /**
      * Downloads the mods specified in the manifest
      * Gets the data from cursemeta
      *
      * @param mods List of the mods from the manifest
+     * @param mcVersion 包的 MC 版本（manifest minecraft.version，用于 Modrinth 身份校验）
+     * @param loaderName 包的 loader 名（如 forge/neoforge/fabric，用于 Modrinth 身份校验）
      */
-    private fun downloadMods(mods: List<ModEntryRaw>) {
+    private fun downloadMods(mods: List<ModEntryRaw>, mcVersion: String?, loaderName: String?) {
         val ignoreSet = HashSet<String>()
         val ignoreListTemp = configFile.install.getFormatSpecificSettingOrDefault<List<Any>>("ignoreProject", null)
         if (ignoreListTemp != null)
@@ -258,30 +324,32 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
 
 
         val urls = ConcurrentLinkedQueue<String>()
-        val modsInformation = requestModInformation(mods,ignoreSet)
-        modsInformation.data.forEach{ mod ->
-            if (mod.downloadUrl != null){
+        val modsInformation = requestModInformation(mods, ignoreSet)
+
+        // 任务2：对 CF 缺省（default）模组做 Modrinth 跨平台身份预扫描（HIGH 命中 client-only 跳过下载）
+        val skipFileNames = HashSet<String>()
+        if (mcVersion != null && loaderName != null) {
+            preScanModrinthIdentity(modsInformation.data, mcVersion, loaderName, skipFileNames)
+        } else {
+            LOGGER.info("Modrinth identity check skipped: manifest has no minecraft version or loader, keeping all default files")
+        }
+
+        modsInformation.data.forEach { mod ->
+            // 已确认 client-only（Modrinth 哈希校验）→ 不下载、不记录判定
+            if (mod.fileName in skipFileNames) return@forEach
+            // 记录 CF 三态判定（fileName → ApiVerdict）。过滤后保留的只可能是缺省/双端，
+            // 供安装后 jar 扫描与 TOML 规则做综合决策（冲突时提示用户）。
+            apiVerdictsByFileMutable[mod.fileName] = apiVerdict(mod.gameVersions)
+            if (mod.downloadUrl != null) {
                 urls.add(mod.downloadUrl)
-            }
-            else{
+            } else {
                 val url = "https://edge.forgecdn.net/files/${mod.id / 1000}/${mod.id % 1000}/${mod.fileName}"
                 urls.add(url)
             }
         }
         LOGGER.info("Mods to download: $urls", true)
 
-        processMods(urls)
-
-    }
-
-    /**
-     * Downloads all mods, with a second fallback if failed
-     * This is done in parallel for better performance
-     *
-     * @param mods object with information from curse api
-     */
-    private fun processMods(mods: Collection<String>) {
-        // constructs the ignore list
+        // constructs the ignore list（ignoreFiles 中 mods/ 前缀项 → shouldSkip 钩子）
         val ignorePatterns = ArrayList<Pattern>()
         for (ignoreFile in configFile.install.ignoreFiles) {
             if (ignoreFile.startsWith("mods/")) {
@@ -289,50 +357,8 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
             }
         }
 
-        // downloads the mods
-        val count = AtomicInteger(0)
-        val totalCount = mods.size
-        val fallbackList = ArrayList<String>()
-
-        mods.stream().parallel().forEach { s -> processSingleMod(s, count, totalCount, fallbackList, ignorePatterns) }
-
-        val secondFail = ArrayList<String>()
-        fallbackList.forEach { s -> processSingleMod(s, count, totalCount, secondFail, ignorePatterns) }
-
-        if (secondFail.isNotEmpty()) {
-            LOGGER.warn("Failed to download (a) mod(s):")
-            for (s in secondFail) {
-                LOGGER.warn("\t" + s)
-            }
-        }
-    }
-    /**
-     * Downloads a single mod and saves to the /mods directory
-     *
-     * @param mod            URL of the mod
-     * @param counter        current counter of how many mods have already been downloaded
-     * @param totalCount     total count of mods that have to be downloaded
-     * @param fallbackList   List to write to when it failed
-     * @param ignorePatterns Patterns of mods which should be ignored
-     */
-    private fun processSingleMod(mod: String, counter: AtomicInteger, totalCount: Int, fallbackList: MutableList<String>, ignorePatterns: List<Pattern>) {
-        try {
-            val modName = FilenameUtils.getName(mod)
-            for (ignorePattern in ignorePatterns) {
-                if (ignorePattern.matcher(modName).matches()) {
-                    LOGGER.info("[" + counter.incrementAndGet() + "/" + totalCount + "] Skipped ignored mod: " + modName)
-                }
-            }
-
-            internetManager.downloadToFile(mod, File(basePath + "mods/" + modName))
-            LOGGER.info("[" + String.format("% 3d", counter.incrementAndGet()) + "/" + totalCount + "] Downloaded mod: " + modName)
-
-        } catch (e: IOException) {
-            LOGGER.error("Failed to download mod", e)
-            fallbackList.add(mod)
-
-        } catch (e: URISyntaxException) {
-            LOGGER.error("Invalid url for $mod", e)
+        ModDownloader(basePath, internetManager).downloadAll(urls) { modName ->
+            ignorePatterns.any { it.matcher(modName).matches() }
         }
     }
 }

@@ -2,9 +2,9 @@ package atm.bloodworkxgaming.serverstarter.mirror.installer
 
 import atm.bloodworkxgaming.serverstarter.ServerStarter.Companion.LOGGER
 import atm.bloodworkxgaming.serverstarter.mirror.core.InstallerZip
+import atm.bloodworkxgaming.serverstarter.util.HashingUtil
 import java.io.File
 import java.io.IOException
-import java.security.MessageDigest
 import java.util.jar.JarFile
 
 /**
@@ -77,13 +77,6 @@ class ProcessorRunner(
     }
 
     /**
-     * args 含 "EXTRACT_FILES" 或 "DOWNLOAD_MOJMAPS" → true。
-     * 二者均不走 JVM（前者跳过，后者特判），供编排/测试预筛使用。
-     */
-//    internal fun isSkipped(processor: Processor): Boolean =
-//        processor.args.contains("EXTRACT_FILES") || processor.args.contains("DOWNLOAD_MOJMAPS")
-
-    /**
      * token 解析（纯函数，/data/xxx 的懒抽取除外）：
      * 1) 整串恰为 [maven坐标] → basePath/libraries/<mavenPath> 绝对路径；
      * 2) 以 "/data/" 开头 → 从安装器 zip 懒抽取到 extractDir 后给绝对路径（条目缺失 → ProcessorExecutionException）；
@@ -107,7 +100,7 @@ class ProcessorRunner(
         for ((relPath, expectedSha1) in outputs) {
             val file = outputFile(relPath)
             if (!file.isFile) return false
-            if (!sha1Hex(file).equals(expectedSha1, ignoreCase = true)) return false
+            if (!HashingUtil.sha1Hex(file).equals(expectedSha1, ignoreCase = true)) return false
         }
         return true
     }
@@ -123,7 +116,7 @@ class ProcessorRunner(
             if (!file.isFile) {
                 throw ProcessorExecutionException("Processor output file missing: $relPath")
             }
-            val actual = sha1Hex(file)
+            val actual = HashingUtil.sha1Hex(file)
             if (actual.equals(expectedSha1, ignoreCase = true)) continue
             if (afterRun) {
                 file.delete()
@@ -261,25 +254,5 @@ class ProcessorRunner(
         val absolute = s.startsWith("/") || s.startsWith("\\") ||
             (s.length >= 3 && s[1] == ':' && (s[2] == '/' || s[2] == '\\'))
         return if (absolute) File(s).absolutePath else s
-    }
-
-    /** SHA-1 流式计算（十六进制小写）。 */
-    private fun sha1Hex(file: File): String {
-        val digest = MessageDigest.getInstance("SHA-1")
-        file.inputStream().use { input ->
-            val buffer = ByteArray(8192)
-            var n = input.read(buffer)
-            while (n >= 0) {
-                if (n > 0) digest.update(buffer, 0, n)
-                n = input.read(buffer)
-            }
-        }
-        val bytes = digest.digest()
-        val sb = StringBuilder(bytes.size * 2)
-        for (b in bytes) {
-            sb.append(Character.forDigit((b.toInt() ushr 4) and 0xF, 16))
-            sb.append(Character.forDigit(b.toInt() and 0xF, 16))
-        }
-        return sb.toString()
     }
 }

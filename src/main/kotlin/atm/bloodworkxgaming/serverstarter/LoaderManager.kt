@@ -12,9 +12,9 @@ import atm.bloodworkxgaming.serverstarter.mirror.installer.InstallerJsonExtracto
 import atm.bloodworkxgaming.serverstarter.mirror.installer.ModLoaderInstaller
 import atm.bloodworkxgaming.serverstarter.mirror.installer.NeoForgeInstaller
 import atm.bloodworkxgaming.serverstarter.mirror.installer.VersionMismatchException
+import atm.bloodworkxgaming.serverstarter.util.ByteProgressReporter
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
-import okhttp3.Request
 import org.apache.commons.io.FileUtils
 import org.apache.commons.io.FilenameUtils
 import org.fusesource.jansi.Ansi.ansi
@@ -137,13 +137,9 @@ class LoaderManager(private val configFile: ConfigFile, private val internetMana
     }
 
     fun installLoader(basePath: String, loaderVersion: String, mcVersion: String): Boolean {
-        // val versionString = "$mcVersion-$forgeVersion"
-        // val url = "http://files.minecraftforge.net/maven/net/minecraftforge/forge/$versionString/forge-$versionString-installer.jar"
         val url = configFile.install.installerUrl
             .replace("{{@loaderversion@}}", loaderVersion)
             .replace("{{@mcversion@}}", mcVersion)
-        // http://files.minecraftforge.net/maven/net/minecraftforge/forge/1.12.2-14.23.3.2682/forge-1.12.2-14.23.3.2682-installer.jar
-        //val installerPath = File(basePath + "forge-" + versionString + "-installer.jar")
         var installerPath = File(basePath + "installer.jar")
         val result: Boolean =
             if (url.contains("fabric")) {
@@ -176,22 +172,14 @@ class LoaderManager(private val configFile: ConfigFile, private val internetMana
      */
     fun getFabricInstallerVersion(): String {
         val installerUrl = "https://meta.fabricmc.net/v2/versions/installer"
-        try{
-            val reqInstaller = Request.Builder()
-                .url(installerUrl)
-                .get()
-                .build()
-            val resInstaller = internetManager.httpClient.newCall(reqInstaller).execute()
-            if (!resInstaller.isSuccessful) throw IOException("HTTP error code: ${resInstaller.code} for $installerUrl")
-
-            val sourceInstaller = resInstaller.body?.string()
-            sourceInstaller?:throw IOException("Message body or source from $installerUrl was null")
-            val turnsType = object : TypeToken<List<InstallerInfo>>(){}.type
-            val installerJson = Gson().fromJson<ArrayList<InstallerInfo>>(sourceInstaller,turnsType)
+        try {
+            val sourceInstaller = internetManager.get(installerUrl)
+            val turnsType = object : TypeToken<List<InstallerInfo>>() {}.type
+            val installerJson = Gson().fromJson<ArrayList<InstallerInfo>>(sourceInstaller, turnsType)
 
             return installerJson[0].version
-        }catch (e:IOException){
-            LOGGER.error("Problem while installing Loader from $installerUrl",e)
+        } catch (e: IOException) {
+            LOGGER.error("Problem while installing Loader from $installerUrl", e)
             throw DownloadLoaderException("Problem while installing Loader from $installerUrl", e)
         }
     }
@@ -208,7 +196,7 @@ class LoaderManager(private val configFile: ConfigFile, private val internetMana
         try {
             fabricUrl = url+"/${fabricVersion}/server/jar"
             LOGGER.info("Attempting to download fabric from $fabricUrl")
-            internetManager.downloadToFile(fabricUrl,installerPath)
+            internetManager.downloadToFile(fabricUrl, installerPath, ByteProgressReporter())
 
             LOGGER.info("Done installing loader!")
         }catch (e:IOException){
@@ -225,7 +213,7 @@ class LoaderManager(private val configFile: ConfigFile, private val internetMana
     fun installForge(basePath: String,url:String,installerPath:File): Boolean {
         try {
             LOGGER.info("Attempting to download installer from $url")
-            internetManager.downloadToFile(url, installerPath)
+            internetManager.downloadToFile(url, installerPath, ByteProgressReporter())
 
             LOGGER.info("Starting installation of Loader, installer output incoming")
             LOGGER.info("Check log for installer for more information", true)
@@ -238,7 +226,7 @@ class LoaderManager(private val configFile: ConfigFile, private val internetMana
                 *configFile.install.installerArguments.toTypedArray()
             )
                 .inheritIO()
-                .directory(File("$basePath."))
+                .directory(File(basePath))
                 .start()
 
 
@@ -262,13 +250,13 @@ class LoaderManager(private val configFile: ConfigFile, private val internetMana
      */
     private fun mirrorInstall(basePath: String, installerUrl: String, loaderVersion: String, mcVersion: String) {
         val provider = DownloadProviders.create(configFile.install.downloadSource, configFile.install.mirrorUrl)
-        val installRoot = resolveInstallRoot(basePath)
+        val installRoot = File(basePath)
             LOGGER.info("install dir: ${installRoot.absolutePath}")
         val installerFile = File.createTempFile("serverstarter-installer", ".jar")
         try {
             LOGGER.info("mirror: downloading installer $installerUrl(candidate: ${provider.injectURL(installerUrl)})")
             LibraryDownloadTask(internetManager.httpClient, provider.getConcurrency())
-                .downloadToFile(installerUrl, installerFile, provider)
+                .downloadToFile(installerUrl, installerFile, provider, progress = ByteProgressReporter())
             InstallerZip.openAndVerify(installerFile).close()   // 无 sha1 元数据 → 仅 zip 完整性
             val plan = InstallerJsonExtractor.parsePlan(installerFile)
             if (plan.mcVersion != mcVersion) {
@@ -287,33 +275,12 @@ class LoaderManager(private val configFile: ConfigFile, private val internetMana
         }
     }
 
-    /**
-     * 安装根目录解析：baseInstallPath 非空 → 按其解析；为空 → 锚定到**正在运行的 jar 所在目录**
-     * （而非进程工作目录 CWD），避免因启动目录不同导致 libraries/ 等文件散落到任意位置。
-     * jar 目录取 codeSource（打包运行 = jar 文件所在目录；IDE/测试 = classes 目录）。
-     */
-    private fun resolveInstallRoot(basePath: String): File {
-        if (basePath.isNotBlank()) return File(basePath)
-        return try {
-            val location = ServerStarter::class.java.protectionDomain?.codeSource?.location
-            val file = location?.let { File(it.toURI()) }
-            when {
-                file == null -> File("")
-                file.isDirectory -> file
-                else -> file.parentFile ?: File("")
-            }
-        } catch (e: Exception) {
-            LOGGER.warn("Unable to resolve the JAR directory, falling back to the current working directory. ${e.message}")
-            File("")
-        }
-    }
-
     fun installSpongeBootstrapper(basePath: String): String {
         val filename = FilenameUtils.getName(configFile.install.spongeBootstrapper)
         val downloadFile = File(basePath + filename)
 
         try {
-            internetManager.downloadToFile(configFile.install.spongeBootstrapper, downloadFile)
+            internetManager.downloadToFile(configFile.install.spongeBootstrapper, downloadFile, ByteProgressReporter())
         } catch (e: IOException) {
             LOGGER.error("Error while downloading bootstrapper", e)
             throw e
@@ -341,10 +308,9 @@ class LoaderManager(private val configFile: ConfigFile, private val internetMana
                     lockFile.spongeBootstrapper
                 } else {
                     replacePlaceholders(configFile.launch.startFile)
-                    // "forge-${lockFile.mcVersion}-${lockFile.forgeVersion}-universal.jar"
                 }
 
-            val launchJar = File(configFile.install.baseInstallPath + filename)
+            val launchJar = File(configFile.install.normalizedInstallPath + filename)
             val arguments = mutableListOf<String>()
             val ramPreArguments = mutableListOf<String>()
             val ramPostArguments = mutableListOf<String>()
@@ -484,7 +450,7 @@ class LoaderManager(private val configFile: ConfigFile, private val internetMana
     private fun startAndWaitForProcess(args: List<String>) {
         ProcessBuilder(args).apply {
             inheritIO()
-            directory(File(configFile.install.baseInstallPath + "."))
+            directory(File(configFile.install.normalizedInstallPath))
             start().apply {
                 runningProcesses.add(this)
 
