@@ -208,7 +208,8 @@ launch:
   # For this you need to have all available JVMs on the PATH
   # -> MC 1.12 to 1.16 requires java [8, 9, 10, 11]
   # -> MC 1.17 requires java [17]
-
+  # supportedJavaVersions: [17]
+  
   # Java args that are supposed to be used when the server launches
   # keep in mind java args often need ' - ' in front of it to work, use clarifying parentheses to make sure it uses it correctly
   # Keep in mind that some arguments only work on JRE 1.8
