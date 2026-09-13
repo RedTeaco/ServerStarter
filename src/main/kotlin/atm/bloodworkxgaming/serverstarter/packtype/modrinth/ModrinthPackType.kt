@@ -15,7 +15,10 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
 import java.io.InputStreamReader
+import java.nio.file.FileSystems
 import java.nio.file.PathMatcher
+import java.nio.file.Paths
+import java.util.HashSet
 import java.util.concurrent.Callable
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
@@ -91,6 +94,16 @@ open class ModrinthPackType(private val configFile: ConfigFile, internetManager:
 
     @Throws(IOException::class)
     override fun postProcessing() {
+        val ignoreSet = HashSet<String>()
+        val ignoreListTemp = configFile.install.getFormatSpecificSettingOrDefault<List<Any>>("ignoreProject", null)
+        if (ignoreListTemp != null)
+            for (o in ignoreListTemp) {
+                if (o is String)
+                    ignoreSet.add(o)
+
+                if (o is Int)
+                    ignoreSet.add(o.toString())
+            }
         // ① 解析 modrinth.index.json，收集存活 mods/ 文件（url / fileName / projectId / index 的 env.server）
         val entries = ArrayList<ModEntry>()
 
@@ -112,7 +125,11 @@ open class ModrinthPackType(private val configFile: ConfigFile, internetManager:
                     continue
                 } else {
                     val url = obj.getAsJsonArray("downloads").get(0).asString
-                    entries.add(ModEntry(url, FilenameUtils.getName(url), extractProjectId(url), serverEnv))
+                    //Support ignoreProject
+                    val projectId = extractProjectId(url)
+                    if (projectId !in ignoreSet ) {
+                        entries.add(ModEntry(url, FilenameUtils.getName(url), extractProjectId(url), serverEnv))
+                    }
                 }
             }
         }
@@ -182,8 +199,20 @@ open class ModrinthPackType(private val configFile: ConfigFile, internetManager:
                 LOGGER.info("Modrinth index env=$serverEnv differs from API environment=${environments.joinToString()} for $fileName")
             }
         }
+        // constructs the ignore list（ignoreFiles 中 mods/ 前缀项 → shouldSkip 钩子）
+        val ignoreMatchers = ArrayList<PathMatcher>()
+        for (ignoreFile in configFile.install.ignoreFiles) {
+            if (ignoreFile.startsWith("mods/")) {
+                val raw = ignoreFile.removePrefix("mods/")
+                val spec = if (raw.startsWith("glob:") || raw.startsWith("regex:")) raw else "glob:$raw"
+                ignoreMatchers.add(FileSystems.getDefault().getPathMatcher(spec))
+            }
+        }
 
-        ModDownloader(basePath, internetManager).downloadAll(modsUrl)
+        ModDownloader(basePath, internetManager).downloadAll(modsUrl) { modName ->
+            val path = Paths.get(modName)
+            ignoreMatchers.any { it.matches(path) }
+        }
     }
 
     /**

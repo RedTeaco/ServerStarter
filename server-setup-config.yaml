@@ -69,7 +69,7 @@ install:
 
   # Settings which are specific to the format used, might not be needed in some casese
   formatSpecific:
-    # optional paramenter used for curse to specify a whole project to ignore (mostly if it is client side only)
+    # optional paramenter used for curse/modrinth to specify a whole project to ignore (mostly if it is client side only)
     # keep in mind it often need ' - ' in front of it to work
     # e.g.
     # - 263420

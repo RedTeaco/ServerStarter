@@ -16,10 +16,11 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
 import java.io.InputStreamReader
+import java.nio.file.FileSystems
 import java.nio.file.PathMatcher
+import java.nio.file.Paths
 import java.util.*
 import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.regex.Pattern
 import java.util.zip.ZipFile
 import kotlin.collections.ArrayList
 
@@ -350,15 +351,27 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
         LOGGER.info("Mods to download: $urls", true)
 
         // constructs the ignore list（ignoreFiles 中 mods/ 前缀项 → shouldSkip 钩子）
-        val ignorePatterns = ArrayList<Pattern>()
+//        val ignorePatterns = ArrayList<Pattern>()
+//        for (ignoreFile in configFile.install.ignoreFiles) {
+//            if (ignoreFile.startsWith("mods/")) {
+//                ignorePatterns.add(Pattern.compile(ignoreFile.substring(ignoreFile.lastIndexOf('/' + 1))))
+//            }
+//        }
+//
+//        ModDownloader(basePath, internetManager).downloadAll(urls) { modName ->
+//            ignorePatterns.any { it.matcher(modName).matches() }
+//        }
+        val ignoreMatchers = ArrayList<PathMatcher>()
         for (ignoreFile in configFile.install.ignoreFiles) {
             if (ignoreFile.startsWith("mods/")) {
-                ignorePatterns.add(Pattern.compile(ignoreFile.substring(ignoreFile.lastIndexOf('/'))))
+                val raw = ignoreFile.removePrefix("mods/")
+                val spec = if (raw.startsWith("glob:") || raw.startsWith("regex:")) raw else "glob:$raw"
+                ignoreMatchers.add(FileSystems.getDefault().getPathMatcher(spec))
             }
         }
-
         ModDownloader(basePath, internetManager).downloadAll(urls) { modName ->
-            ignorePatterns.any { it.matcher(modName).matches() }
+            val path = Paths.get(modName)
+            ignoreMatchers.any { it.matches(path) }
         }
     }
 }
