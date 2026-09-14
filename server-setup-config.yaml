@@ -69,12 +69,23 @@ install:
 
   # Settings which are specific to the format used, might not be needed in some casese
   formatSpecific:
-    # optional paramenter used for curse/modrinth to specify a whole project to ignore (mostly if it is client side only)
-    # keep in mind it often need ' - ' in front of it to work
+    # 忽略列表（curse / modrinth 均支持），任一身份命中即不下载该文件。前缀大小写不敏感：
+    #   263420                    纯数字 → CurseForge 项目 ID（历史 curse 写法）
+    #   AANobbMI / sodium         其他裸串 → Modrinth 项目 ID 或 slug
+    #   curseProject:263420       CurseForge 项目 ID（显式写法）
+    #   curseFile:8837013         CurseForge 文件 ID（离线可判，可从 forgecdn 链接推出）
+    #   modrinth:AANobbMI         Modrinth 项目 ID 或 slug（显式写法）
+    #   name:sodium*.jar          文件名 glob（可带 mods/ 前缀；%2b 与 + 两种写法都能命中）
+    #   glob:iris*.jar / regex:.*-client\.jar   文件名 glob / 正则
+    # 说明：modrinth 包型会遍历该条目的全部 downloads 链接取身份，
+    #      因此「CurseForge 链接在前、Modrinth 链接在后」的整合包也能正常排除；
+    #      解析失败（网络/无 api key）只 warn 并退化为字面量比较，不会误删。
     # e.g.
     # - 263420
     # - 317780
     # - 232131
+    # - AANobbMI
+    # - name:iris*.jar
     ignoreProject:
       -
 

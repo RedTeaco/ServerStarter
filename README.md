@@ -93,7 +93,7 @@ The config file is `server-setup-config.yaml` (a full example is provided at the
 | `mirrorUrl` | Mirror apiRoot override (only effective with `downloadSource: bmclapi`); when empty uses the default `https://bmclapi2.bangbang93.com`; an OpenBMCLAPI node can be used | `~` | `https://bmclapi.example.com` |
 | `modpackUrl` | Modpack download URL; supports http(s) URLs and `file://` local paths (relative paths work too); using the fixed value `"./.zip"` automatically finds a `.zip` file in the same directory | `""` | `file://./modpacks/pack.zip` |
 | `modpackFormat` | Modpack format: `curse` / `curseforge`, `modrinth`, `curseid`, `zip` / `zipfile` | `""` | `curse` |
-| `formatSpecific.ignoreProject` | (curse only) Ignore an entire CurseForge project by project ID, mostly used for client-only mods | `[]` | `[263420]` |
+| `formatSpecific.ignoreProject` | Ignore list, supported for both `curse` and `modrinth` (the Modrinth pack type also uses it to skip the client-only check); accepts Modrinth project ID/slug, CurseForge project ID/file ID, or file-name rules — see "ignoreProject forms" below | `[]` | `[263420, AANobbMI]` |
 | `baseInstallPath` | Server installation base path; empty means the current directory | `~` | `server/` |
 | `ignoreFiles` | List of files to ignore during installation; supports glob (default) or a `regex:` / `glob:` prefix to force the match type | `[]` | `mods/optifine*.jar`, `kubejs/client_scripts/**` |
 | `additionalFiles` | List of additional files (`url` + `destination`) to add files the server needs but the client doesn't have | `~` | `- url: https://…/spark-forge.jar`<br>`  destination: mods/spark-forge.jar` |
@@ -103,6 +103,32 @@ The config file is `server-setup-config.yaml` (a full example is provided at the
 | `spongeBootstrapper` | Sponge bootstrap jar download URL (needed when `launch.spongefix` is enabled) | `""` | `https://github.com/simon816/SpongeBootstrap/releases/download/v0.7.1/SpongeBootstrap-0.7.1.jar` |
 | `connectTimeout` | Timeout (seconds) for connecting to any web service; increase it on poor networks | `30` | `60` |
 | `readTimeout` | Timeout (seconds) for reading from any web service; increase it on poor networks | `30` | `60` |
+
+#### ignoreProject forms (curse / modrinth)
+
+`install.formatSpecific.ignoreProject` is a list; a file is ignored when any of its identities matches. Prefixes are case-insensitive:
+
+| Form | Meaning | Needs network |
+|---|---|---|
+| `263420` (plain digits, no prefix) | CurseForge **project ID** (legacy curse semantics) | yes (on the Modrinth pack type a `POST /v1/mods/files` lookup maps fileId → modId) |
+| `AANobbMI` / `sodium` (any other bare token) | Modrinth **project ID or slug** | only for slugs / non-canonical IDs (`GET /v3/project/{id or slug}`) |
+| `curseProject:263420` / `cfProject:263420` | CurseForge project ID (explicit) | same as above |
+| `curseFile:8837013` / `cfFile:8837013` | CurseForge **file ID** | no (offline) |
+| `modrinth:AANobbMI` | Modrinth project ID or slug (explicit) | same as bare token |
+| `name:sodium*.jar` | file-name glob (matches the basename; a leading `mods/` is allowed) | no (offline) |
+| `glob:iris*.jar` / `regex:.*-client\.jar` | file-name glob / regex | no (offline) |
+
+Notes:
+
+- On the Modrinth pack type the identity is taken from **all** `downloads` links of an entry, not just the first
+  one, so packs whose CurseForge links come first (with Modrinth links later) now match correctly; entries with
+  CurseForge links only can still be ignored through CurseForge project ID / file ID / file-name rules.
+- File-name rules match the raw URL file name, its percent-decoded form (`%2b` ↔ `+`) and the manifest `path`
+  name, so `name:CTM-1.21-1.2.1+3.jar` and `name:CTM-1.21-1.2.1%2b3.jar` both hit the same file.
+- Any resolution failure (network down, unknown slug, no `curseForgeApiKey`) only logs a warning and falls back
+  to literal comparison — it never deletes extra files or aborts the installation (fail-safe).
+- When a file has several download links, the download uses `downloads[0]` first and falls back to the following
+  links in order; the file name on disk always comes from the first link.
 
 ### launch — launch config
 
@@ -146,7 +172,9 @@ MC ≤ 1.16 needs Java 8, MC ≥ 1.17 needs Java 17 / 21. List the allowed versi
 ### Client-only mods got installed onto the server / were removed by mistake?
 
 The program filters client-only mods based on CurseForge client/server markers, Modrinth platform environment info, and TOML rules; when information is uncertain, it uses a fail-safe strategy (keeps the mod). For precise control:
-- use `install.formatSpecific.ignoreProject` (curse) to ignore entire projects by project ID;
+- use `install.formatSpecific.ignoreProject` to ignore entire projects by ID: the curse pack type takes
+  CurseForge project IDs, while the modrinth pack type also accepts Modrinth project ID/slug, CurseForge
+  project ID/file ID, and file-name rules (see "ignoreProject forms");
 - use `install.ignoreFiles` to exclude/keep specific files;
 - if a mod is misclassified, feel free to [submit an issue](https://github.com/RedTeaco/ServerStarter/issues).
 

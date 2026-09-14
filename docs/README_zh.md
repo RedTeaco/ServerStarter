@@ -94,7 +94,7 @@ java -jar serverstarter-2.5.1.jar install
 | `mirrorUrl` | 镜像站 apiRoot 覆盖（仅 `downloadSource: bmclapi` 时生效）；为空使用默认 `https://bmclapi2.bangbang93.com`，可填 OpenBMCLAPI 节点 | `~` | `https://bmclapi.example.com` |
 | `modpackUrl` | 整合包下载地址；支持 http(s) URL 与 `file://` 本地路径（相对路径亦可）,若使用固定字符`"./.zip"`则自动寻找同级目录下的`.zip`文件 | `""` | `file://./modpacks/pack.zip` |
 | `modpackFormat` | 整合包格式：`curse` / `curseforge`、`modrinth`、`curseid`、`zip` / `zipfile` | `""` | `curse` |
-| `formatSpecific.ignoreProject` | （仅 curse）按项目 ID 忽略整个 CurseForge 项目，多用于客户端专用模组 | `[]` | `[263420]` |
+| `formatSpecific.ignoreProject` | 忽略列表，`curse` 与 `modrinth` 均支持（Modrinth 包型会同时用于「不下载」与「跳过客户端判定」）；可写 Modrinth 项目 ID/slug、CurseForge 项目 ID/文件 ID 或文件名规则，详见下方「ignoreProject 写法」 | `[]` | `[263420, AANobbMI]` |
 | `baseInstallPath` | 服务器安装基础路径；为空表示当前目录 | `~` | `server/` |
 | `ignoreFiles` | 安装时忽略的文件列表，支持 glob（默认）或 `regex:` / `glob:` 前缀强制匹配类型 | `[]` | `mods/optifine*.jar`、`kubejs/client_scripts/**` |
 | `additionalFiles` | 附加文件列表（`url` + `destination`），用于补充服务器需要、客户端没有的文件 | `~` | `- url: https://…/spark-forge.jar`<br>`  destination: mods/spark-forge.jar` |
@@ -104,6 +104,32 @@ java -jar serverstarter-2.5.1.jar install
 | `spongeBootstrapper` | Sponge bootstrap jar 下载地址（`launch.spongefix` 启用时需要） | `""` | `https://github.com/simon816/SpongeBootstrap/releases/download/v0.7.1/SpongeBootstrap-0.7.1.jar` |
 | `connectTimeout` | 连接任意 Web 服务的超时（秒），网络不佳时可调大 | `30` | `60` |
 | `readTimeout` | 读取任意 Web 服务的超时（秒），网络不佳时可调大 | `30` | `60` |
+
+#### ignoreProject 写法（curse / modrinth 通用）
+
+`install.formatSpecific.ignoreProject` 是一个列表，任一身份命中即忽略该文件。前缀大小写不敏感：
+
+| 写法 | 含义 | 需要联网 |
+|---|---|---|
+| `263420`（纯数字，无前缀） | CurseForge **项目 ID**（历史 curse 语义） | 是（modrinth 包型下用 `POST /v1/mods/files` 反查 fileId → modId） |
+| `AANobbMI` / `sodium`（其他裸串） | Modrinth **项目 ID 或 slug** | slug / 非规范 ID 需要 `GET /v3/project/{id或slug}` 解析 |
+| `curseProject:263420` / `cfProject:263420` | CurseForge 项目 ID（显式写法） | 同上 |
+| `curseFile:8837013` / `cfFile:8837013` | CurseForge **文件 ID** | 否（离线） |
+| `modrinth:AANobbMI` | Modrinth 项目 ID 或 slug（显式写法） | 同裸串 |
+| `name:sodium*.jar` | 文件名 glob（匹配文件名 basename，可带 `mods/` 前缀） | 否（离线） |
+| `glob:iris*.jar` / `regex:.*-client\.jar` | 文件名 glob / 正则 | 否（离线） |
+
+说明：
+
+- Modrinth 包型下，身份来自 `modrinth.index.json` 中该条目的**全部** `downloads` 链接（不只看第一个），
+  因此「CurseForge 链接在前、Modrinth 链接在后」的整合包也能正常命中；纯 CurseForge 链接的条目
+  仍可通过 CurseForge 项目 ID / 文件 ID / 文件名规则排除。
+- 文件名规则会同时匹配 URL 里的原始文件名、其百分号解码形式（`%2b` ↔ `+`）以及 manifest `path` 的名字，
+  所以 `name:CTM-1.21-1.2.1+3.jar` 与 `name:CTM-1.21-1.2.1%2b3.jar` 都能命中同一个文件。
+- 任何解析失败（网络不可用、slug 不存在、没有 `curseForgeApiKey`）都只 warn 并退化为字面量比较，
+  绝不会因此误删或中断安装（fail-safe）。
+- 同一文件多个下载链接时，下载优先使用 `downloads[0]`，失败后按顺序回退到后续链接；
+  落盘文件名始终取第一个链接的名字。
 
 ### launch 启动配置
 
@@ -145,7 +171,8 @@ MC ≤ 1.16 需要 Java 8，MC ≥ 1.17 需要 Java 17 / 21。可在 `launch.sup
 ### 客户端专用模组被装进服务器 / 被误删？
 
 程序会依据 CurseForge 的客户端/服务端标记、Modrinth 平台环境信息与 TOML 规则过滤客户端专用模组；信息不确定时采用 fail-safe 策略（保留模组）。如需精确控制：
-- 用 `install.formatSpecific.ignoreProject`（curse）按项目 ID 忽略整包项目；
+- 用 `install.formatSpecific.ignoreProject` 按项目 ID 忽略整个项目：curse 包型写 CurseForge 项目 ID，
+  modrinth 包型可写 Modrinth 项目 ID/slug、CurseForge 项目 ID/文件 ID 或文件名规则（见「ignoreProject 写法」）；
 - 用 `install.ignoreFiles` 排除/保留具体文件；
 - 若某个模组被误判，欢迎[提交 issue](https://github.com/RedTeaco/ServerStarter/issues) 反馈。
 
