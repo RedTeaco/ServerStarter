@@ -145,43 +145,47 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
     private fun requestModInformation(mods: List<ModEntryRaw>, ignoreSet: HashSet<String>): GetFilesResponse {
         LOGGER.info("Requesting Download links from curse api.")
 
-        data class GetModFilesRequestBody(val fileIds: List<String>)
-        val fileList = GetModFilesRequestBody(mods.map { it.fileID }.toList())
-
         val gson = Gson()
-        val bodyJson = gson.toJson(fileList)
-        LOGGER.info("Request Body: $bodyJson", true)
-
         val url = "https://api.curseforge.com/v1/mods/files"
-        val str = internetManager.postJson(
-                url,
-                bodyJson,
-                mapOf(
-                        "Content-Type" to "application/json",
-                        "Accept" to "application/json",
-                        "x-api-key" to configFile.install.curseForgeApiKey
-                )
-        )
-        LOGGER.info("Response Json from fileId query: ${str.length}", true)
-        LOGGER.info("Response Json from fileId query: $str", true)
+        val allMods = ArrayList<GetFilesResponseMod>()
 
-        val jsonRes = gson.fromJson(str, GetFilesResponse::class.java)
-        LOGGER.info("Converted Response from manifest query: $jsonRes", true)
+        // 分块请求：CF 对大请求体有限制，几百个 fileId 一次发过去可能直接 400
+        for (chunk in chunkFileIds(mods.map { it.fileID })) {
+            val bodyJson = gson.toJson(GetModFilesRequestBody(chunk))
+            LOGGER.info("Request Body: $bodyJson", true)
 
-        val filteredMods = jsonRes.data.distinct().toList()
-            .filter { mod ->
-                // 1. 忽略列表中的项目
-                val isIgnoredById = ignoreSet.contains(mod.modId.toString())
-                // 2. 非 jar 文件（比如资源包）
-                val isNotJar = !mod.fileName.endsWith(".jar")
-                // 3. CF 三态判定：仅客户端（含 Client 且不含 Server，忽略大小写）不下载
-                val verdict = apiVerdict(mod.gameVersions)
+            val str = internetManager.postJson(
+                    url,
+                    bodyJson,
+                    mapOf(
+                            "Content-Type" to "application/json",
+                            "Accept" to "application/json",
+                            "x-api-key" to configFile.install.curseForgeApiKey
+                    )
+            )
+            LOGGER.info("Response Json from fileId query: ${str.length}", true)
+            LOGGER.info("Response Json from fileId query: $str", true)
 
-                // 保留条件：非忽略、是 jar、且不是仅客户端
-                !isIgnoredById && !isNotJar && verdict != ApiVerdict.CLIENT_ONLY
-            }
+            val jsonRes = gson.fromJson(str, GetFilesResponse::class.java)
+            LOGGER.info("Converted Response from manifest query: $jsonRes", true)
+
+            allMods.addAll(jsonRes.data)
+        }
+
+        val distinctMods = allMods.distinct()
+        val filteredMods = distinctMods.filter { mod ->
+            // 1. 忽略列表中的项目
+            val isIgnoredById = ignoreSet.contains(mod.modId.toString())
+            // 2. 非 jar 文件（比如资源包）
+            val isNotJar = !mod.fileName.endsWith(".jar")
+            // 3. CF 三态判定：仅客户端（含 Client 且不含 Server，忽略大小写）不下载
+            val verdict = apiVerdict(mod.gameVersions)
+
+            // 保留条件：非忽略、是 jar、且不是仅客户端
+            !isIgnoredById && !isNotJar && verdict != ApiVerdict.CLIENT_ONLY
+        }
         // ignore resource pack and shader pack
-        val ignoredMods = jsonRes.data.distinct().toList().filter { it !in filteredMods }
+        val ignoredMods = distinctMods.filter { it !in filteredMods }
         val ignoredModsString = ignoredMods.joinToString(separator = "\n") { "\t${it.fileName} (${it.modId})" }
         LOGGER.info("Ignoring the following mods:\n $ignoredModsString")
 
@@ -356,7 +360,19 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
             FileIgnoreRules.firstMatch(ignoreMatchers, setOf(modName)) != null
         }
     }
+
+    companion object {
+        /** CF `POST /v1/mods/files` 单次请求的 fileId 上限（保守分块，避免超长请求体被拒）。 */
+        private const val CURSE_FILE_QUERY_CHUNK = 500
+
+        /** fileId 去重后按上限分块（纯函数，便于单测）。 */
+        fun chunkFileIds(fileIds: List<String>, chunkSize: Int = CURSE_FILE_QUERY_CHUNK): List<List<String>> =
+                fileIds.distinct().chunked(chunkSize)
+    }
 }
+
+/** CF `POST /v1/mods/files` 的请求体 */
+data class GetModFilesRequestBody(val fileIds: List<String>)
 
 /**
  * Data class to keep projectID and fileID together
