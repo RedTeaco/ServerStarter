@@ -29,7 +29,11 @@ object ModrinthIndexManifest {
             /** 跨平台身份（Modrinth 项目 ID / CurseForge 项目 ID / 文件 ID / 候选文件名）。 */
             val identity: ModFileIdentity.Identity,
             /** index 声明的 `env.server` 值；缺失为 null。 */
-            val serverEnv: String?
+            val serverEnv: String?,
+            /** index 声明的 `hashes.sha1`；缺失为 null（下载后用于校验）。 */
+            val sha1: String? = null,
+            /** index 声明的 `hashes.sha512`；缺失为 null（下载后用于校验，优先于 sha1）。 */
+            val sha512: String? = null
     )
 
     /** 解析根对象；`files` 缺失或不是数组时返回空列表。 */
@@ -62,6 +66,11 @@ object ModrinthIndexManifest {
                 continue
             }
 
+            // index 声明的哈希（sha1 / sha512），下载后用于校验；缺失即不校验（fail-safe）
+            val hashes = obj.get("hashes")?.takeIf { it.isJsonObject }?.asJsonObject
+            val sha1 = hashes?.get("sha1")?.takeIf { it.isJsonPrimitive }?.asString
+            val sha512 = hashes?.get("sha512")?.takeIf { it.isJsonPrimitive }?.asString
+
             // 身份解析遍历**全部**下载链接：真实 mrpack（尤其 CF 转换包）的 downloads 常是
             // [CF CDN, CF CDN, Modrinth]，只看 downloads[0] 会拿不到 Modrinth projectId，
             // 使 ignoreProject 与 environment 判定同时失效。
@@ -70,7 +79,9 @@ object ModrinthIndexManifest {
                     fileName = FilenameUtils.getName(urls[0]),
                     path = path,
                     identity = ModFileIdentity.fromEntry(urls, path),
-                    serverEnv = serverEnv
+                    serverEnv = serverEnv,
+                    sha1 = sha1,
+                    sha512 = sha512
             ))
         }
 

@@ -19,7 +19,6 @@ import java.io.IOException
 import java.io.InputStreamReader
 import java.nio.file.PathMatcher
 import java.util.*
-import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.zip.ZipFile
 import kotlin.collections.ArrayList
 
@@ -327,7 +326,7 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
             }
 
 
-        val urls = ConcurrentLinkedQueue<String>()
+        val targets = ArrayList<ModDownloader.DownloadTarget>()
         val modsInformation = requestModInformation(mods, ignoreSet)
 
         // 任务2：对 CF 缺省（default）模组做 Modrinth 跨平台身份预扫描（HIGH 命中 client-only 跳过下载）
@@ -344,19 +343,18 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
             // 记录 CF 三态判定（fileName → ApiVerdict）。过滤后保留的只可能是缺省/双端，
             // 供安装后 jar 扫描与 TOML 规则做综合决策（冲突时提示用户）。
             apiVerdictsByFileMutable[mod.fileName] = apiVerdict(mod.gameVersions)
-            if (mod.downloadUrl != null) {
-                urls.add(mod.downloadUrl)
-            } else {
-                val url = "https://edge.forgecdn.net/files/${mod.id / 1000}/${mod.id % 1000}/${mod.fileName}"
-                urls.add(url)
-            }
+            // CF API 的 hashes 里 algo=1 即 sha1（见 CurseForge API 文档），下载后用于校验
+            val sha1 = mod.hashes.firstOrNull { it.algo == 1 }?.value
+            val url = mod.downloadUrl
+                    ?: "https://edge.forgecdn.net/files/${mod.id / 1000}/${mod.id % 1000}/${mod.fileName}"
+            targets.add(ModDownloader.DownloadTarget(listOf(url), mod.fileName, sha1 = sha1))
         }
-        LOGGER.info("Mods to download: $urls", true)
+        LOGGER.info("Mods to download: $targets", true)
 
         // constructs the ignore list（ignoreFiles 中 mods/ 前缀项 → shouldSkip 钩子）
         // （唯一实现在 FileIgnoreRules；非 mods/ 前缀项只影响解压阶段）
         val ignoreMatchers = FileIgnoreRules.downloadMatchers(configFile.install.ignoreFiles)
-        ModDownloader(basePath, internetManager).downloadAll(urls) { modName ->
+        ModDownloader(basePath, internetManager).downloadTargets(targets) { modName ->
             FileIgnoreRules.firstMatch(ignoreMatchers, setOf(modName)) != null
         }
     }

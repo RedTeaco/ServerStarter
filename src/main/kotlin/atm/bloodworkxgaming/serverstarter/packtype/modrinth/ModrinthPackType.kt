@@ -156,14 +156,14 @@ open class ModrinthPackType(private val configFile: ConfigFile, internetManager:
 
             if (projectId == null) {
                 LOGGER.warn("No Modrinth project id in any download link of ${entry.path} (${entry.identity.describe()}), keeping without API check: $fileName")
-                targets.add(ModDownloader.DownloadTarget(entry.urls, fileName))
+                targets.add(ModDownloader.DownloadTarget(entry.urls, fileName, sha1 = entry.sha1, sha512 = entry.sha512))
                 continue
             }
 
             val environments = environmentCache[projectId]
             if (environments == null) {
                 LOGGER.warn("Modrinth API lookup failed for project $projectId, keeping (fail-safe): $fileName")
-                targets.add(ModDownloader.DownloadTarget(entry.urls, fileName))
+                targets.add(ModDownloader.DownloadTarget(entry.urls, fileName, sha1 = entry.sha1, sha512 = entry.sha512))
                 continue
             }
 
@@ -182,12 +182,12 @@ open class ModrinthPackType(private val configFile: ConfigFile, internetManager:
                 ApiVerdict.DUAL -> {
                     apiVerdictsByFileMutable[fileName] = verdict
                     LOGGER.info("Keeping mod: $fileName (Modrinth API environment=${environments.joinToString()})")
-                    targets.add(ModDownloader.DownloadTarget(entry.urls, fileName))
+                    targets.add(ModDownloader.DownloadTarget(entry.urls, fileName, sha1 = entry.sha1, sha512 = entry.sha512))
                 }
                 else -> {
                     // verdict == null 且 environments 非空（singleplayer_only / unknown）：保留但不记录判定
                     LOGGER.warn("No environment info for project $projectId, keeping without verdict: $fileName")
-                    targets.add(ModDownloader.DownloadTarget(entry.urls, fileName))
+                    targets.add(ModDownloader.DownloadTarget(entry.urls, fileName, sha1 = entry.sha1, sha512 = entry.sha512))
                 }
             }
         }
