@@ -8,7 +8,8 @@ import atm.bloodworkxgaming.serverstarter.packtype.ManifestVersions
 import atm.bloodworkxgaming.serverstarter.util.ModDownloader
 import atm.bloodworkxgaming.serverstarter.util.ZipExtractor
 import atm.bloodworkxgaming.serverstarter.util.ApiVerdict
-import atm.bloodworkxgaming.serverstarter.util.ModrinthIdentityLookup
+import atm.bloodworkxgaming.serverstarter.util.CurseModrinthPreScan
+import atm.bloodworkxgaming.serverstarter.util.FileIgnoreRules
 import com.google.gson.Gson
 import com.google.gson.JsonParser
 import okhttp3.Request
@@ -16,11 +17,8 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
 import java.io.InputStreamReader
-import java.nio.file.FileSystems
 import java.nio.file.PathMatcher
-import java.nio.file.Paths
 import java.util.*
-import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.zip.ZipFile
 import kotlin.collections.ArrayList
 
@@ -129,9 +127,6 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
         val data: List<GetFilesResponseMod>
     )
 
-    /** CF 项目详情（GET /v1/mods/{modId} 的 data 段，任务2 名称降级路径用）。 */
-    private data class CfProjectInfo(val name: String, val authors: List<String>)
-
     /** CF 三态判定：gameVersions 忽略大小写包含判断（缺省/仅客户端/双端）。 */
     private fun apiVerdict(gameVersions: List<String>?): ApiVerdict {
         val hasClient = gameVersions?.any { it.equals("client", ignoreCase = true) } == true
@@ -146,119 +141,51 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
     private fun requestModInformation(mods: List<ModEntryRaw>, ignoreSet: HashSet<String>): GetFilesResponse {
         LOGGER.info("Requesting Download links from curse api.")
 
-        data class GetModFilesRequestBody(val fileIds: List<String>)
-        val fileList = GetModFilesRequestBody(mods.map { it.fileID }.toList())
-
         val gson = Gson()
-        val bodyJson = gson.toJson(fileList)
-        LOGGER.info("Request Body: $bodyJson", true)
-
         val url = "https://api.curseforge.com/v1/mods/files"
-        val str = internetManager.postJson(
-                url,
-                bodyJson,
-                mapOf(
-                        "Content-Type" to "application/json",
-                        "Accept" to "application/json",
-                        "x-api-key" to configFile.install.curseForgeApiKey
-                )
-        )
-        LOGGER.info("Response Json from fileId query: ${str.length}", true)
-        LOGGER.info("Response Json from fileId query: $str", true)
+        val allMods = ArrayList<GetFilesResponseMod>()
 
-        val jsonRes = gson.fromJson(str, GetFilesResponse::class.java)
-        LOGGER.info("Converted Response from manifest query: $jsonRes", true)
+        // 分块请求：CF 对大请求体有限制，几百个 fileId 一次发过去可能直接 400
+        for (chunk in chunkFileIds(mods.map { it.fileID })) {
+            val bodyJson = gson.toJson(GetModFilesRequestBody(chunk))
+            LOGGER.info("Request Body: $bodyJson", true)
 
-        val filteredMods = jsonRes.data.distinct().toList()
-            .filter { mod ->
-                // 1. 忽略列表中的项目
-                val isIgnoredById = ignoreSet.contains(mod.modId.toString())
-                // 2. 非 jar 文件（比如资源包）
-                val isNotJar = !mod.fileName.endsWith(".jar")
-                // 3. CF 三态判定：仅客户端（含 Client 且不含 Server，忽略大小写）不下载
-                val verdict = apiVerdict(mod.gameVersions)
+            val str = internetManager.postJson(
+                    url,
+                    bodyJson,
+                    mapOf(
+                            "Content-Type" to "application/json",
+                            "Accept" to "application/json",
+                            "x-api-key" to configFile.install.curseForgeApiKey
+                    )
+            )
+            LOGGER.info("Response Json from fileId query: ${str.length}", true)
+            LOGGER.info("Response Json from fileId query: $str", true)
 
-                // 保留条件：非忽略、是 jar、且不是仅客户端
-                !isIgnoredById && !isNotJar && verdict != ApiVerdict.CLIENT_ONLY
-            }
+            val jsonRes = gson.fromJson(str, GetFilesResponse::class.java)
+            LOGGER.info("Converted Response from manifest query: $jsonRes", true)
+
+            allMods.addAll(jsonRes.data)
+        }
+
+        val distinctMods = allMods.distinct()
+        val filteredMods = distinctMods.filter { mod ->
+            // 1. 忽略列表中的项目
+            val isIgnoredById = ignoreSet.contains(mod.modId.toString())
+            // 2. 非 jar 文件（比如资源包）
+            val isNotJar = !mod.fileName.endsWith(".jar")
+            // 3. CF 三态判定：仅客户端（含 Client 且不含 Server，忽略大小写）不下载
+            val verdict = apiVerdict(mod.gameVersions)
+
+            // 保留条件：非忽略、是 jar、且不是仅客户端
+            !isIgnoredById && !isNotJar && verdict != ApiVerdict.CLIENT_ONLY
+        }
         // ignore resource pack and shader pack
-        val ignoredMods = jsonRes.data.distinct().toList().filter { it !in filteredMods }
+        val ignoredMods = distinctMods.filter { it !in filteredMods }
         val ignoredModsString = ignoredMods.joinToString(separator = "\n") { "\t${it.fileName} (${it.modId})" }
         LOGGER.info("Ignoring the following mods:\n $ignoredModsString")
 
         return GetFilesResponse(filteredMods)
-    }
-
-    /**
-     * 任务2：对 CF 缺省（default）模组做 Modrinth 跨平台身份预扫描（仅当 manifest 提供 MC 版本与 loader 时）。
-     *
-     * - HIGH（sha1 哈希反查 + 同 loader + 同 MC 版本）：命中且 environment=client_only →
-     *   标记跳过下载（不落盘、不记录判定）；命中但非 client_only → 保留下载。
-     * - MEDIUM/LOW（名称 + 作者 / 仅名称）：仅 LOGGER 提示，照常下载（fail-safe，绝不因弱匹配丢模组）。
-     * - 任何查询失败 → warn + 维持 default（fail-safe）。
-     */
-    private fun preScanModrinthIdentity(
-            mods: List<GetFilesResponseMod>,
-            mcVersion: String,
-            loaderName: String,
-            skipFileNames: MutableSet<String>
-    ) {
-        for (mod in mods) {
-            if (apiVerdict(mod.gameVersions) != ApiVerdict.DEFAULT) continue
-
-            LOGGER.info("CF file ${mod.fileName} has no client/server tags (default), checking Modrinth for identity...")
-
-            // HIGH 路径：CF sha1（algo=1 = Sha1，见 CurseForge API 文档）→ Modrinth v3 哈希反查
-            val sha1 = mod.hashes.firstOrNull { it.algo == 1 }?.value
-            val hashHit = if (sha1 != null) {
-                try {
-                    ModrinthIdentityLookup.lookupByHash(sha1, mcVersion, loaderName) { url -> internetManager.get(url) }
-                } catch (e: IOException) {
-                    LOGGER.warn("Modrinth lookup for ${mod.fileName} failed, keeping (fail-safe): ${e.message}")
-                    null
-                }
-            } else {
-                null
-            }
-
-            if (hashHit != null) {
-                LOGGER.info("Matched Modrinth version by file hash (loader=$loaderName, mc=$mcVersion): project=${hashHit.projectId} (${hashHit.versionName}), environment=${hashHit.environment ?: "null"}")
-                if (hashHit.environment != null && hashHit.environment.equals("client_only", ignoreCase = true)) {
-                    LOGGER.warn("Modrinth environment=client_only for ${mod.fileName} (verified by sha1 hash, loader=$loaderName, mc=$mcVersion) -> client-only, skipping download")
-                    skipFileNames.add(mod.fileName)
-                } else {
-                    LOGGER.info("Modrinth environment=${hashHit.environment ?: "null"} for ${mod.fileName} -> not client-only, keeping")
-                }
-                continue
-            }
-
-            // MEDIUM/LOW 路径：CF 项目名 + 作者（best-effort）→ Modrinth 搜索（仅日志，不处置）
-            val cfProject = try {
-                cfProjectInfo(mod.modId)
-            } catch (e: IOException) {
-                LOGGER.warn("CurseForge project info lookup for mod ${mod.modId} failed, keeping ${mod.fileName} as default: ${e.message}")
-                null
-            }
-
-            val nameMatch = if (cfProject != null) {
-                try {
-                    ModrinthIdentityLookup.lookupByName(cfProject.name, cfProject.authors, mcVersion, loaderName) { url -> internetManager.get(url) }
-                } catch (e: IOException) {
-                    LOGGER.warn("Modrinth lookup for ${mod.fileName} failed, keeping (fail-safe): ${e.message}")
-                    null
-                }
-            } else {
-                null
-            }
-
-            when {
-                nameMatch == null -> LOGGER.info("No Modrinth match for ${mod.fileName}, keeping as default")
-                nameMatch.authorMatched ->
-                    LOGGER.info("Matched Modrinth project by name/author: ${nameMatch.name} (${nameMatch.slug ?: "null"}), environment=${nameMatch.environment ?: "null"}; keeping ${mod.fileName}")
-                else ->
-                    LOGGER.warn("Possible but unverified Modrinth match (name only): ${nameMatch.name} (${nameMatch.slug ?: "null"}), environment=${nameMatch.environment ?: "null"}; keeping ${mod.fileName}")
-            }
-        }
     }
 
     /**
@@ -278,28 +205,6 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
             }
             val body = response.body ?: throw IOException("Message body was null for $url")
             return body.string()
-        }
-    }
-
-    /**
-     * CF 项目详情（GET /v1/mods/{modId}）：解析 data.name（项目名，用于 Modrinth 搜索，非 displayName）
-     * 与 data.authors[].name。网络失败（IOException）向上抛出由调用方处理；响应解析失败 → warn + null（fail-safe）。
-     */
-    private fun cfProjectInfo(modId: Int): CfProjectInfo? {
-        val body = cfGet("https://api.curseforge.com/v1/mods/$modId")
-        return try {
-            val data = JsonParser.parseString(body).asJsonObject.getAsJsonObject("data")
-            val name = data.get("name")?.takeIf { it.isJsonPrimitive }?.asString?.trim() ?: ""
-            val authors = data.get("authors")?.takeIf { it.isJsonArray }?.asJsonArray
-                    ?.mapNotNull { element ->
-                        element.takeIf { it.isJsonObject }?.asJsonObject
-                                ?.get("name")?.takeIf { it.isJsonPrimitive }?.asString
-                    }
-                    ?: emptyList()
-            if (name.isEmpty()) null else CfProjectInfo(name, authors)
-        } catch (e: Exception) {
-            LOGGER.warn("Failed to parse CurseForge project info for mod $modId, keeping as default: ${e.message}")
-            null
         }
     }
 
@@ -324,15 +229,29 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
             }
 
 
-        val urls = ConcurrentLinkedQueue<String>()
+        val targets = ArrayList<ModDownloader.DownloadTarget>()
         val modsInformation = requestModInformation(mods, ignoreSet)
 
         // 任务2：对 CF 缺省（default）模组做 Modrinth 跨平台身份预扫描（HIGH 命中 client-only 跳过下载）
-        val skipFileNames = HashSet<String>()
-        if (mcVersion != null && loaderName != null) {
-            preScanModrinthIdentity(modsInformation.data, mcVersion, loaderName, skipFileNames)
+        // 并发 + 去重缓存由 CurseModrinthPreScan 负责，详见该对象 KDoc
+        val skipFileNames: Set<String> = if (mcVersion != null && loaderName != null) {
+            CurseModrinthPreScan.scan(
+                    mods = modsInformation.data
+                            .filter { apiVerdict(it.gameVersions) == ApiVerdict.DEFAULT }
+                            .map { mod ->
+                                CurseModrinthPreScan.ModInput(
+                                        fileName = mod.fileName,
+                                        modId = mod.modId,
+                                        sha1 = mod.hashes.firstOrNull { hash -> hash.algo == 1 }?.value)
+                            },
+                    mcVersion = mcVersion,
+                    loaderName = loaderName,
+                    getModrinth = { url -> internetManager.get(url) },
+                    getCurseForge = { url -> cfGet(url) }
+            )
         } else {
             LOGGER.info("Modrinth identity check skipped: manifest has no minecraft version or loader, keeping all default files")
+            emptySet()
         }
 
         modsInformation.data.forEach { mod ->
@@ -341,40 +260,34 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
             // 记录 CF 三态判定（fileName → ApiVerdict）。过滤后保留的只可能是缺省/双端，
             // 供安装后 jar 扫描与 TOML 规则做综合决策（冲突时提示用户）。
             apiVerdictsByFileMutable[mod.fileName] = apiVerdict(mod.gameVersions)
-            if (mod.downloadUrl != null) {
-                urls.add(mod.downloadUrl)
-            } else {
-                val url = "https://edge.forgecdn.net/files/${mod.id / 1000}/${mod.id % 1000}/${mod.fileName}"
-                urls.add(url)
-            }
+            // CF API 的 hashes 里 algo=1 即 sha1（见 CurseForge API 文档），下载后用于校验
+            val sha1 = mod.hashes.firstOrNull { it.algo == 1 }?.value
+            val url = mod.downloadUrl
+                    ?: "https://edge.forgecdn.net/files/${mod.id / 1000}/${mod.id % 1000}/${mod.fileName}"
+            targets.add(ModDownloader.DownloadTarget(listOf(url), mod.fileName, sha1 = sha1))
         }
-        LOGGER.info("Mods to download: $urls", true)
+        LOGGER.info("Mods to download: $targets", true)
 
         // constructs the ignore list（ignoreFiles 中 mods/ 前缀项 → shouldSkip 钩子）
-//        val ignorePatterns = ArrayList<Pattern>()
-//        for (ignoreFile in configFile.install.ignoreFiles) {
-//            if (ignoreFile.startsWith("mods/")) {
-//                ignorePatterns.add(Pattern.compile(ignoreFile.substring(ignoreFile.lastIndexOf('/' + 1))))
-//            }
-//        }
-//
-//        ModDownloader(basePath, internetManager).downloadAll(urls) { modName ->
-//            ignorePatterns.any { it.matcher(modName).matches() }
-//        }
-        val ignoreMatchers = ArrayList<PathMatcher>()
-        for (ignoreFile in configFile.install.ignoreFiles) {
-            if (ignoreFile.startsWith("mods/")) {
-                val raw = ignoreFile.removePrefix("mods/")
-                val spec = if (raw.startsWith("glob:") || raw.startsWith("regex:")) raw else "glob:$raw"
-                ignoreMatchers.add(FileSystems.getDefault().getPathMatcher(spec))
-            }
-        }
-        ModDownloader(basePath, internetManager).downloadAll(urls) { modName ->
-            val path = Paths.get(modName)
-            ignoreMatchers.any { it.matches(path) }
+        // （唯一实现在 FileIgnoreRules；非 mods/ 前缀项只影响解压阶段）
+        val ignoreMatchers = FileIgnoreRules.downloadMatchers(configFile.install.ignoreFiles)
+        ModDownloader(basePath, internetManager).downloadTargets(targets) { modName ->
+            FileIgnoreRules.firstMatch(ignoreMatchers, setOf(modName)) != null
         }
     }
+
+    companion object {
+        /** CF `POST /v1/mods/files` 单次请求的 fileId 上限（保守分块，避免超长请求体被拒）。 */
+        private const val CURSE_FILE_QUERY_CHUNK = 500
+
+        /** fileId 去重后按上限分块（纯函数，便于单测）。 */
+        fun chunkFileIds(fileIds: List<String>, chunkSize: Int = CURSE_FILE_QUERY_CHUNK): List<List<String>> =
+                fileIds.distinct().chunked(chunkSize)
+    }
 }
+
+/** CF `POST /v1/mods/files` 的请求体 */
+data class GetModFilesRequestBody(val fileIds: List<String>)
 
 /**
  * Data class to keep projectID and fileID together

@@ -69,12 +69,24 @@ install:
 
   # Settings which are specific to the format used, might not be needed in some casese
   formatSpecific:
-    # optional paramenter used for curse/modrinth to specify a whole project to ignore (mostly if it is client side only)
-    # keep in mind it often need ' - ' in front of it to work
+    # Ignore by platform project id (works for curse and modrinth): a file is not downloaded when any id matches.
+    # Prefixes are case-insensitive, and only canonical project ids are accepted:
+    #   263420                 plain digits -> CurseForge project id
+    #   AANobbMI               8 characters, base62 -> Modrinth project id (slugs are not supported and never match;
+    #                          copy the id from the pack's cdn.modrinth.com/data/<projectId>/ link)
+    #   curseProject:263420    CurseForge project id (explicit)
+    #   modrinth:AANobbMI      Modrinth project id (explicit)
+    # name:/filename:/glob:/regex: (file names) and curseFile:/cfFile: (file ids) are rejected with a warning --
+    # use install.ignoreFiles below for anything file-name based.
+    # Notes: the modrinth pack type takes the identity from ALL downloads links of an entry, so packs whose
+    #        CurseForge links come first (Modrinth links later) are matched as well. A CurseForge project id
+    #        needs the pack's file ids to be mapped back to project ids over the network; a missing
+    #        curseForgeApiKey or a failed lookup only logs a warning and never deletes extra files.
     # e.g.
     # - 263420
     # - 317780
     # - 232131
+    # - AANobbMI
     ignoreProject:
       -
 
@@ -84,6 +96,11 @@ install:
   # a list of files which are supposed to be ignored when installing it from the client files
   # this can either use regex or glob {default glob: https://docs.oracle.com/javase/8/docs/api/java/nio/file/FileSystem.html#getPathMatcher-java.lang.String-}
   # specify with regex:.... or glob:.... if you want to force a matching type
+  # The only place for file-name rules (ignoreProject no longer handles file names):
+  #   entries with a mods/ prefix -> skipped before downloading, matched against every possible name of the
+  #                                  file (each download link's file name, its percent-decoded form and the
+  #                                  manifest path name), so both %2b and + spellings hit the same file
+  #   all other entries           -> extraction stage only (overrides-relative paths, e.g. kubejs/client_scripts/**)
   ignoreFiles:
     - mods/Overrides.txt
     - mods/optifine*.jar

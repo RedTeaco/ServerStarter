@@ -7,7 +7,7 @@ plugins {
 }
 
 group = 'tk.redteaco'
-version = '2.5.2'
+version = '2.5.3'
 
 java {
     sourceCompatibility = JavaVersion.VERSION_1_8
