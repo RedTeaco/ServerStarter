@@ -11,13 +11,16 @@ import java.net.URLDecoder
  * 导致 `ignoreProject` 与 Modrinth `environment` 判定双双失效（只检查第一个下载链接的 ID 的 bug）。
  * 因此这里遍历**整个 downloads 数组**，任何一条链接能解析出身份都算数。
  *
- * 支持的链接形态：
+ * 支持的链接形态（都是**直链**；mrpack 的 `downloads[]` 里不会出现项目页那种页面地址）：
  * - Modrinth：`https://cdn.modrinth.com/data/{projectId}/versions/{versionId}/{file}`
  *   （也兼容 `cdn-raw` / `staging-cdn` 等子域）；projectId 为 base62，**大小写敏感**。
  * - CurseForge CDN：`https://mediafilez.forgecdn.net/files/{fileId/1000}/{fileId%1000}/{file}`
  *   （edge / mediafilez 等子域）→ 反推 CurseForge **文件 ID**（离线，无需 API）。
- * - CurseForge 下载页：`https://www.curseforge.com/minecraft/mc-mods/{slug}/download/{fileId}`
- * - CurseForge API 链接：`https://api.curseforge.com/v1/mods/{projectId}/files/{fileId}/download`
+ * - CurseForge API 直链：`https://api.curseforge.com/v1/mods/{projectId}/files/{fileId}/download`
+ *   → 同时给出**项目 ID** 与文件 ID。
+ *
+ * 注意：`curseforge.com/.../download/{fileId}` 这种**项目页地址**不是下载直链、也不是 API，
+ * 本对象不解析它（真要排除这类条目用 `install.ignoreFiles` 的文件名规则即可）。
  */
 object ModFileIdentity {
 
@@ -44,11 +47,8 @@ object ModFileIdentity {
     // Modrinth CDN：/data/{projectId}/...（projectId 为 base62，遇到 / ? # 截止）
     private val MODRINTH_DATA = Regex("""(?i)^https?://(?:[^/]*\.)?modrinth\.com/data/([A-Za-z0-9]+)(?:[/?#]|$)""")
 
-    // CurseForge API：`https://api.curseforge.com/v1/mods/{projectId}/files/{fileId}`（可选的 /api 段一并容忍）
+    // CurseForge API 直链：`https://api.curseforge.com/v1/mods/{projectId}/files/{fileId}`（可选的 /api 段一并容忍）
     private val CURSEFORGE_API_FILE = Regex("""(?i)^https?://(?:[^/]*\.)?curseforge\.com/(?:api/)?v\d+/mods/(\d+)/files/(\d+)(?:[/?#]|$)""")
-
-    // CurseForge 下载页：.../download/{fileId}
-    private val CURSEFORGE_WEB_FILE = Regex("""(?i)^https?://(?:[^/]*\.)?curseforge\.com/[^?#]*/download/(\d+)(?:[/?#]|$)""")
 
     // CurseForge CDN：/files/{fileId/1000}/{fileId%1000}/{file}
     private val FORGECDN_FILE = Regex("""(?i)^https?://(?:[^/]*\.)?forgecdn\.net/files/(\d+)/(\d+)(?:[/?#]|$)""")
@@ -83,10 +83,9 @@ object ModFileIdentity {
             MODRINTH_DATA.find(url)?.groupValues?.get(1)?.takeIf { it.isNotBlank() }
 
     /**
-     * CurseForge 文件 ID：
+     * CurseForge 文件 ID（仅从**直链**反推，项目页地址不解析）：
      * - `.../api/v1/mods/{projectId}/files/{fileId}/...` → fileId
      * - `.../files/{a}/{b}/{file}`（forgecdn CDN）→ a*1000+b
-     * - `.../download/{fileId}`（项目页）→ fileId
      * 解析不出返回 null。
      */
     fun curseFileId(url: String): String? {
@@ -100,7 +99,7 @@ object ModFileIdentity {
             }
         }
 
-        return CURSEFORGE_WEB_FILE.find(url)?.groupValues?.get(1)
+        return null
     }
 
     /**

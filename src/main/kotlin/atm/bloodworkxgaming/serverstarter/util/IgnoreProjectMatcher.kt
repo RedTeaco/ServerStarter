@@ -3,88 +3,78 @@ package atm.bloodworkxgaming.serverstarter.util
 import atm.bloodworkxgaming.serverstarter.ServerStarter.Companion.LOGGER
 
 /**
- * `install.formatSpecific.ignoreProject` 的解析与匹配（**只做平台身份**）。
- *
- * 历史上该配置只比对「第一个下载链接里的 Modrinth projectId」，对 `[CF, CF, Modrinth]`
- * 形态的 downloads 数组完全失效；现在改为基于 [ModFileIdentity] 的完整身份匹配，
- * 支持以下写法（前缀大小写不敏感）：
+ * `install.formatSpecific.ignoreProject` 的解析与匹配（**只认两个平台的规范项目 ID**）。
  *
  * | 写法 | 含义 |
  * |---|---|
- * | `263420`（纯数字，无前缀） | CurseForge **项目 ID**（保持历史 curse 语义） |
- * | `AANobbMI` / `sodium`（其他裸串） | Modrinth **项目 ID 或 slug** |
+ * | `263420`（纯数字，无前缀） | CurseForge **项目 ID** |
+ * | `AANobbMI`（8 位 base62） | Modrinth **项目 ID** |
  * | `curseProject:263420` / `cfProject:263420` | CurseForge 项目 ID（显式写法） |
- * | `curseFile:8837013` / `cfFile:8837013` | CurseForge **文件 ID**（可从 forgecdn 链接离线推出） |
- * | `modrinth:AANobbMI` / `mr:AANobbMI` | Modrinth 项目 ID 或 slug（显式写法） |
+ * | `modrinth:AANobbMI` / `mr:AANobbMI` | Modrinth 项目 ID（显式写法） |
  *
- * **文件名不再由本配置负责**：`name:` / `filename:` / `glob:` / `regex:` 一律拒绝并 warn，
- * 请改用 `install.ignoreFiles`（见 [FileIgnoreRules]）——那里才是文件名的唯一入口，
- * 且同时匹配全部下载链接名、百分号解码名与 manifest `path` 名。
+ * 不再接受的形式（warn 后忽略，避免"配了却不生效"的困惑）：
+ * - `name:` / `filename:` / `glob:` / `regex:` → 文件名属于 `install.ignoreFiles`（见 [FileIgnoreRules]）；
+ * - `curseFile:` / `cfFile:` → 标识的是**文件**而非项目，同样请用 `install.ignoreFiles` 的文件名规则；
+ * - Modrinth **slug**（如 `sodium`）：本配置不做联网解析，slug 永远不会命中项目 ID。
+ *   项目 ID 可直接从整合包的 `cdn.modrinth.com/data/<projectId>/...` 链接里取到。
  *
- * 匹配口径：任一身份命中即忽略该文件。Modrinth slug 与 CurseForge 项目 ID 需要联网解析
- * （见 `ModrinthPackType`），解析失败时退化为字面量比较（fail-safe，绝不误删）。
+ * 匹配口径：
+ * - Modrinth 侧用 [ModFileIdentity.Identity.modrinthProjectId] 与配置字面量比对（不联网）；
+ * - CurseForge 侧因为 mrpack 只提供文件 ID（forgecdn 链接里没有项目 ID），需要调用方先把包内
+ *   文件 ID 反查成项目 ID（[curseProjectIdByFileId]）。该反查结果是运行时产物，**不属于 [Spec]**。
  */
 class IgnoreProjectMatcher(
-        private val modrinthProjectIds: Set<String>,
-        private val curseProjectIds: Set<String>,
-        private val curseProjectIdsByFileId: Map<String, String>,
-        private val curseFileIds: Set<String>
+        private val spec: Spec,
+        private val curseProjectIdByFileId: Map<String, String> = emptyMap()
 ) {
 
     val isEmpty: Boolean
-        get() = modrinthProjectIds.isEmpty() && curseProjectIds.isEmpty() && curseFileIds.isEmpty()
+        get() = spec.isEmpty
 
     /** 该文件身份是否命中任一忽略规则。 */
     fun matches(identity: ModFileIdentity.Identity): Boolean {
-        if (modrinthProjectIds.isNotEmpty()) {
-            val id = identity.modrinthProjectId
-            if (id != null && modrinthProjectIds.contains(id)) return true
-        }
+        val modrinthId = identity.modrinthProjectId
+        if (modrinthId != null && modrinthId in spec.modrinthProjectIds) return true
 
-        if (curseProjectIds.isNotEmpty()) {
-            val project = identity.curseProjectId
-            if (project != null && curseProjectIds.contains(project)) return true
-            val fileId = identity.curseFileId
-            if (fileId != null && curseProjectIdsByFileId[fileId] in curseProjectIds) return true
-        }
+        if (spec.curseForgeProjectIds.isNotEmpty()) {
+            val curseProjectId = identity.curseProjectId
+            if (curseProjectId != null && curseProjectId in spec.curseForgeProjectIds) return true
 
-        if (curseFileIds.isNotEmpty()) {
-            val fileId = identity.curseFileId
-            if (fileId != null && curseFileIds.contains(fileId)) return true
+            val curseFileId = identity.curseFileId
+            if (curseFileId != null && curseProjectIdByFileId[curseFileId] in spec.curseForgeProjectIds) return true
         }
 
         return false
     }
 
-    /** ignoreProject 的解析结果（尚未联网解析 slug / CurseForge 项目 ID）。 */
+    /** 解析结果：两个平台的**规范项目 ID**（无 slug / fileId / fileName）。 */
     data class Spec(
-            val modrinthIdOrSlug: Set<String>,
-            val curseProjectIds: Set<String>,
-            val curseFileIds: Set<String>
+            val modrinthProjectIds: Set<String>,
+            val curseForgeProjectIds: Set<String>
     ) {
         val isEmpty: Boolean
-            get() = modrinthIdOrSlug.isEmpty() && curseProjectIds.isEmpty() && curseFileIds.isEmpty()
+            get() = modrinthProjectIds.isEmpty() && curseForgeProjectIds.isEmpty()
     }
 
     companion object {
-        /** 已迁移到 install.ignoreFiles 的前缀：出现即拒绝，避免"配了却不生效"。 */
+        /** 已迁走到 install.ignoreFiles 的前缀。 */
         private val FILE_NAME_PREFIXES = listOf("name:", "filename:", "glob:", "regex:")
 
+        /** 标识文件而非项目的前缀。 */
         private val CURSE_FILE_PREFIXES = listOf("cursefile:", "cffile:")
+
         private val CURSE_PROJECT_PREFIXES = listOf("curseproject:", "cfproject:", "curse:")
         private val MODRINTH_PREFIXES = listOf("modrinth:", "mr:")
 
-        /** Modrinth ID/slug 的合法字符（用于避免把任意配置串拼进请求 URL）。 */
-        private val MODRINTH_ENTRY = Regex("""^[A-Za-z0-9_-]{1,64}$""")
+        /** Modrinth 项目 ID 形状：固定 8 位 base62（大小写敏感）。 */
+        private val MODRINTH_ID = Regex("""^[A-Za-z0-9]{8}$""")
 
         /**
-         * 解析 ignoreProject 列表。yaml 中未加引号的数字会被读成 [Int]，
-         * 视为 CurseForge 项目 ID（与历史行为一致）。
+         * 解析 ignoreProject 列表。yaml 中未加引号的数字会被读成 [Int]，视为 CurseForge 项目 ID。
          */
         fun parseSpec(entries: List<Any>?): Spec {
             val modrinth = LinkedHashSet<String>()
             val curseProjects = LinkedHashSet<String>()
-            val curseFiles = LinkedHashSet<String>()
 
             if (entries != null) {
                 for (entry in entries) {
@@ -101,44 +91,33 @@ class IgnoreProjectMatcher(
                     val lower = raw.lowercase()
                     when {
                         FILE_NAME_PREFIXES.any { lower.startsWith(it) } ->
-                            LOGGER.warn("ignoreProject no longer supports file name rules, skipping: $raw (move it to install.ignoreFiles, e.g. 'mods/${raw.substringAfter(':')}')")
-                        CURSE_FILE_PREFIXES.any { lower.startsWith(it) } -> {
-                            val value = raw.substringAfter(':').trim()
-                            if (value.isNotEmpty()) curseFiles.add(value)
-                        }
-                        CURSE_PROJECT_PREFIXES.any { lower.startsWith(it) } -> {
-                            val value = raw.substringAfter(':').trim()
-                            if (value.isNotEmpty()) curseProjects.add(value)
-                        }
-                        MODRINTH_PREFIXES.any { lower.startsWith(it) } -> {
-                            val value = raw.substringAfter(':').trim()
-                            if (value.isNotEmpty()) modrinth.add(value)
-                        }
+                            LOGGER.warn("ignoreProject only accepts project ids, skipping file name rule: $raw (move it to install.ignoreFiles, e.g. 'mods/${raw.substringAfter(':')}')")
+
+                        CURSE_FILE_PREFIXES.any { lower.startsWith(it) } ->
+                            LOGGER.warn("ignoreProject only accepts project ids, skipping file id: $raw (use install.ignoreFiles with the file name, or a CurseForge project id)")
+
+                        CURSE_PROJECT_PREFIXES.any { lower.startsWith(it) } ->
+                            raw.substringAfter(':').trim().takeIf { it.isNotEmpty() }?.let { curseProjects.add(it) }
+
+                        MODRINTH_PREFIXES.any { lower.startsWith(it) } ->
+                            raw.substringAfter(':').trim().takeIf { it.isNotEmpty() }?.let { addModrinthId(it, modrinth) }
+
                         raw.all { it.isDigit() } -> curseProjects.add(raw)
-                        else -> modrinth.add(raw)
+
+                        else -> addModrinthId(raw, modrinth)
                     }
                 }
             }
 
-            return Spec(modrinth, curseProjects, curseFiles)
+            return Spec(modrinth, curseProjects)
         }
 
-        /**
-         * 汇总解析结果与联网解析结果（Modrinth 规范 ID、CF 文件 ID → 项目 ID），
-         * 生成最终匹配器。
-         */
-        fun build(
-                spec: Spec,
-                resolvedModrinthIds: Set<String> = emptySet(),
-                curseProjectIdsByFileId: Map<String, String> = emptyMap()
-        ): IgnoreProjectMatcher = IgnoreProjectMatcher(
-                modrinthProjectIds = spec.modrinthIdOrSlug + resolvedModrinthIds,
-                curseProjectIds = spec.curseProjectIds,
-                curseProjectIdsByFileId = curseProjectIdsByFileId,
-                curseFileIds = spec.curseFileIds
-        )
-
-        /** Modrinth 条目是否值得拿去请求 API（避免把奇怪字符串拼进 URL）。 */
-        fun isResolvableModrinthEntry(entry: String): Boolean = MODRINTH_ENTRY.matches(entry)
+        /** Modrinth 项目 ID 形状校验：不是 8 位 base62 时只 warn，仍按字面量收录（绝不静默丢弃）。 */
+        private fun addModrinthId(value: String, into: MutableSet<String>) {
+            if (!MODRINTH_ID.matches(value)) {
+                LOGGER.warn("ignoreProject entry '$value' is not an 8-character Modrinth project id; slugs are not supported - copy the id from the pack's cdn.modrinth.com/data/<projectId>/ link")
+            }
+            into.add(value)
+        }
     }
 }

@@ -52,8 +52,10 @@ class ModFileIdentityTest {
     }
 
     @Test
-    fun `CurseForge 项目页与 API 链接`() {
-        assertEquals("1234567", ModFileIdentity.curseFileId("https://www.curseforge.com/minecraft/mc-mods/sodium/download/1234567"))
+    fun `CurseForge 只解析直链：API 直链给出项目 ID，项目页地址不解析`() {
+        // 项目页地址不是下载直链、也不是 API：不从中猜身份（要排除这类条目请用 install.ignoreFiles 的文件名规则）
+        assertNull(ModFileIdentity.curseFileId("https://www.curseforge.com/minecraft/mc-mods/sodium/download/1234567"))
+        assertNull(ModFileIdentity.modrinthProjectId("https://www.curseforge.com/minecraft/mc-mods/sodium/download/1234567"))
 
         val apiUrls = listOf("https://api.curseforge.com/v1/mods/394468/files/1234567/download")
         val identity = ModFileIdentity.fromEntry(apiUrls, "mods/sodium.jar")

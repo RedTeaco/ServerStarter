@@ -202,55 +202,18 @@ open class ModrinthPackType(private val configFile: ConfigFile, internetManager:
         val spec = IgnoreProjectMatcher.parseSpec(
                 configFile.install.getFormatSpecificSettingOrDefault<List<Any>>("ignoreProject", null))
 
-        if (spec.isEmpty) return IgnoreProjectMatcher.build(spec)
-        LOGGER.info("ignoreProject entries: modrinthIdOrSlug=${spec.modrinthIdOrSlug}, curseProjectIds=${spec.curseProjectIds}, curseFileIds=${spec.curseFileIds}")
+        if (spec.isEmpty) return IgnoreProjectMatcher(spec)
+        LOGGER.info("ignoreProject project ids: modrinth=${spec.modrinthProjectIds}, curseforge=${spec.curseForgeProjectIds}")
 
-        // Modrinth：规范 ID 直接字面量比较；slug（或无法与 URL 中的 ID 对上）需要一次 API 解析
-        val knownModrinthIds = entries.mapNotNull { it.identity.modrinthProjectId }.toSet()
-        val resolvedModrinthIds = resolveModrinthIds(spec.modrinthIdOrSlug, knownModrinthIds)
-
-        // CurseForge：项目 ID 需要 fileId → modId 反查（离线只能从链接拿到文件 ID）
-        val curseProjectIdsByFileId = if (spec.curseProjectIds.isEmpty()) {
+        // CurseForge 侧：mrpack 只给得到文件 ID（forgecdn 链接里没有项目 ID），而配置写的是项目 ID，
+        // 因此需要一次 fileId → modId 反查。该反查结果是运行时产物，不属于 Spec。
+        val curseProjectIdsByFileId = if (spec.curseForgeProjectIds.isEmpty()) {
             emptyMap()
         } else {
             resolveCurseProjectIdsByFileId(entries.mapNotNull { it.identity.curseFileId })
         }
 
-        return IgnoreProjectMatcher.build(spec, resolvedModrinthIds, curseProjectIdsByFileId)
-    }
-
-    /**
-     * 把 ignoreProject 中的 Modrinth 条目解析为规范 project id（v3 `GET /project/{id|slug}` 同时接受
-     * ID 与 slug）。已经在包内链接里出现过的 ID 跳过请求（字面量已能命中）；解析失败 → warn + 字面量比较。
-     */
-    private fun resolveModrinthIds(entries: Set<String>, knownIds: Set<String>): Set<String> {
-        val resolved = LinkedHashSet<String>()
-
-        for (entry in entries) {
-            if (entry in knownIds) continue
-
-            if (!IgnoreProjectMatcher.isResolvableModrinthEntry(entry)) {
-                LOGGER.warn("ignoreProject entry '$entry' is not a plausible Modrinth id/slug, matching it literally")
-                continue
-            }
-
-            try {
-                val obj = JsonParser.parseString(internetManager.get("https://api.modrinth.com/v3/project/$entry")).asJsonObject
-                val id = obj.get("id")?.takeIf { it.isJsonPrimitive }?.asString
-                        ?: obj.get("project_id")?.takeIf { it.isJsonPrimitive }?.asString
-                if (id == null) {
-                    LOGGER.warn("Modrinth response for ignoreProject '$entry' has no project id, matching it literally")
-                } else {
-                    resolved.add(id)
-                    val slug = obj.get("slug")?.takeIf { it.isJsonPrimitive }?.asString
-                    LOGGER.info("ignoreProject '$entry' resolved to Modrinth project $id" + (slug?.let { " (slug=$it)" } ?: ""))
-                }
-            } catch (e: Exception) {
-                LOGGER.warn("Modrinth lookup for ignoreProject '$entry' failed, matching it literally (fail-safe): ${e.message}")
-            }
-        }
-
-        return resolved
+        return IgnoreProjectMatcher(spec, curseProjectIdsByFileId)
     }
 
     /**

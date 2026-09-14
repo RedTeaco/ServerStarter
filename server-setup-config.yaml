@@ -69,16 +69,16 @@ install:
 
   # Settings which are specific to the format used, might not be needed in some casese
   formatSpecific:
-    # 按「平台身份」忽略（curse / modrinth 均支持），任一身份命中即不下载该文件。前缀大小写不敏感：
+    # 按「平台项目 ID」忽略（curse / modrinth 均支持），任一 ID 命中即不下载该文件。前缀大小写不敏感，只认规范项目 ID：
     #   263420                    纯数字 → CurseForge 项目 ID（历史 curse 写法）
-    #   AANobbMI / sodium         其他裸串 → Modrinth 项目 ID 或 slug
+    #   AANobbMI                  8 位 base62 → Modrinth 项目 ID（slug 不支持，写了不会命中）
     #   curseProject:263420       CurseForge 项目 ID（显式写法）
-    #   curseFile:8837013         CurseForge 文件 ID（离线可判，可从 forgecdn 链接推出）
-    #   modrinth:AANobbMI         Modrinth 项目 ID 或 slug（显式写法）
+    #   modrinth:AANobbMI         Modrinth 项目 ID（显式写法）
+    # name:/filename:/glob:/regex:（文件名）与 curseFile:/cfFile:（文件 ID）都会被 warn 并忽略，
+    # 文件名请用下面的 install.ignoreFiles；Modrinth slug 也不会被解析，写了不会命中。
     # 说明：modrinth 包型会遍历该条目的全部 downloads 链接取身份，
     #      因此「CurseForge 链接在前、Modrinth 链接在后」的整合包也能正常排除；
-    #      解析失败（网络/无 api key）只 warn 并退化为字面量比较，不会误删。
-    # 按「文件名」忽略请用下面的 install.ignoreFiles（唯一入口）。
+    #      CurseForge 项目 ID 需要联网把包内文件 ID 反查成项目 ID；无 api key 或失败只 warn，不会误删。
     # e.g.
     # - 263420
     # - 317780

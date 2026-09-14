@@ -112,22 +112,24 @@ java -jar serverstarter-2.5.1.jar install
 | 写法 | 含义 | 需要联网 |
 |---|---|---|
 | `263420`（纯数字，无前缀） | CurseForge **项目 ID**（历史 curse 语义） | 是（modrinth 包型下用 `POST /v1/mods/files` 反查 fileId → modId） |
-| `AANobbMI` / `sodium`（其他裸串） | Modrinth **项目 ID 或 slug** | slug / 非规范 ID 需要 `GET /v3/project/{id或slug}` 解析 |
+| `AANobbMI`（8 位 base62） | Modrinth **项目 ID** | 否（离线，按字面量比对） |
 | `curseProject:263420` / `cfProject:263420` | CurseForge 项目 ID（显式写法） | 同上 |
-| `curseFile:8837013` / `cfFile:8837013` | CurseForge **文件 ID** | 否（离线） |
-| `modrinth:AANobbMI` / `mr:AANobbMI` | Modrinth 项目 ID 或 slug（显式写法） | 同裸串 |
+| `modrinth:AANobbMI` / `mr:AANobbMI` | Modrinth 项目 ID（显式写法，8 位 base62） | 否（离线） |
 
 说明：
 
 - Modrinth 包型下，身份来自 `modrinth.index.json` 中该条目的**全部** `downloads` 链接（不只看第一个），
   因此「CurseForge 链接在前、Modrinth 链接在后」的整合包也能正常命中；纯 CurseForge 链接的条目
-  可通过 CurseForge 项目 ID / 文件 ID 排除。
-- 任何解析失败（网络不可用、slug 不存在、没有 `curseForgeApiKey`）都只 warn 并退化为字面量比较，
-  绝不会因此误删或中断安装（fail-safe）。
+  可通过 CurseForge 项目 ID 排除（需要联网把文件 ID 反查成项目 ID）。
+- CurseForge 项目 ID 需要联网把包内文件 ID 反查成项目 ID（`POST /v1/mods/files`）；没有 `curseForgeApiKey`
+  或请求失败只 warn，不影响其它规则，也绝不会误删或中断安装（fail-safe）。
 - 同一文件多个下载链接时，下载优先使用 `downloads[0]`，失败后按顺序回退到后续链接；
   落盘文件名始终取第一个链接的名字。
-- **`name:` / `glob:` / `regex:` 等文件名写法不再由本配置负责**（写了会被 warn 并忽略），请改用
-  `install.ignoreFiles`。
+- **只认两个平台的规范项目 ID**：`name:` / `filename:` / `glob:` / `regex:`（文件名）与 `curseFile:` /
+  `cfFile:`（文件 ID）都会被 warn 并忽略 —— 前者改用 `install.ignoreFiles`，后者改用 `ignoreFiles`
+  的文件名规则或 CurseForge 项目 ID。
+- Modrinth **slug 不被解析**（如 `sodium`）：写了只按字面量比对、永远不会命中。项目 ID 可以从整合包的
+  `cdn.modrinth.com/data/<projectId>/...` 链接里直接复制。
 
 #### ignoreFiles 写法（文件名唯一入口）
 
