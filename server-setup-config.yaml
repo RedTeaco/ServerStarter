@@ -41,15 +41,16 @@ install:
   installerArguments:
     - "--installServer"
 
-  # 下载源（镜像站进程内安装）：
-  #   mojang  - 默认。官方直连，走原 --installServer 子进程安装（原行为）
-  #   bmclapi - 通过 BMCLAPI 镜像站进程内完成安装：下载安装器→解析→镜像下载全部文件→执行 processors
-  #              （不运行安装器子进程；镜像安装失败会自动回退 --installServer）
+  # Download source (in-process installation through a mirror):
+  #   mojang  - default. Official direct connection, keeps the original --installServer subprocess flow
+  #   bmclapi - install in-process through the BMCLAPI mirror: download the installer, parse it, download
+  #             every file from the mirror and run the processors (no installer subprocess; falls back to
+  #             --installServer automatically if the mirror installation fails)
   downloadSource: mojang
 
-  # 镜像站 apiRoot 覆盖（可选，仅 downloadSource: bmclapi 时生效）：
-  # 空值（~ / null / ""）使用 https://bmclapi2.bangbang93.com；可填 OpenBMCLAPI 节点地址
-  # 例: mirrorUrl: "https://bmclapi.example.com"
+  # Mirror apiRoot override (optional, only used with downloadSource: bmclapi):
+  # an empty value (~ / null / "") uses https://bmclapi2.bangbang93.com; an OpenBMCLAPI node may be used
+  # Example: mirrorUrl: "https://bmclapi.example.com"
   mirrorUrl: ~
 
   # Link to where the file where the modpack can be distributed
@@ -69,16 +70,19 @@ install:
 
   # Settings which are specific to the format used, might not be needed in some casese
   formatSpecific:
-    # 按「平台项目 ID」忽略（curse / modrinth 均支持），任一 ID 命中即不下载该文件。前缀大小写不敏感，只认规范项目 ID：
-    #   263420                    纯数字 → CurseForge 项目 ID（历史 curse 写法）
-    #   AANobbMI                  8 位 base62 → Modrinth 项目 ID（slug 不支持，写了不会命中）
-    #   curseProject:263420       CurseForge 项目 ID（显式写法）
-    #   modrinth:AANobbMI         Modrinth 项目 ID（显式写法）
-    # name:/filename:/glob:/regex:（文件名）与 curseFile:/cfFile:（文件 ID）都会被 warn 并忽略，
-    # 文件名请用下面的 install.ignoreFiles；Modrinth slug 也不会被解析，写了不会命中。
-    # 说明：modrinth 包型会遍历该条目的全部 downloads 链接取身份，
-    #      因此「CurseForge 链接在前、Modrinth 链接在后」的整合包也能正常排除；
-    #      CurseForge 项目 ID 需要联网把包内文件 ID 反查成项目 ID；无 api key 或失败只 warn，不会误删。
+    # Ignore by platform project id (works for curse and modrinth): a file is not downloaded when any id matches.
+    # Prefixes are case-insensitive, and only canonical project ids are accepted:
+    #   263420                 plain digits -> CurseForge project id
+    #   AANobbMI               8 characters, base62 -> Modrinth project id (slugs are not supported and never match;
+    #                          copy the id from the pack's cdn.modrinth.com/data/<projectId>/ link)
+    #   curseProject:263420    CurseForge project id (explicit)
+    #   modrinth:AANobbMI      Modrinth project id (explicit)
+    # name:/filename:/glob:/regex: (file names) and curseFile:/cfFile: (file ids) are rejected with a warning --
+    # use install.ignoreFiles below for anything file-name based.
+    # Notes: the modrinth pack type takes the identity from ALL downloads links of an entry, so packs whose
+    #        CurseForge links come first (Modrinth links later) are matched as well. A CurseForge project id
+    #        needs the pack's file ids to be mapped back to project ids over the network; a missing
+    #        curseForgeApiKey or a failed lookup only logs a warning and never deletes extra files.
     # e.g.
     # - 263420
     # - 317780
@@ -93,10 +97,11 @@ install:
   # a list of files which are supposed to be ignored when installing it from the client files
   # this can either use regex or glob {default glob: https://docs.oracle.com/javase/8/docs/api/java/nio/file/FileSystem.html#getPathMatcher-java.lang.String-}
   # specify with regex:.... or glob:.... if you want to force a matching type
-  # 「文件名」忽略的唯一入口（ignoreProject 不再处理文件名）：
-  #   mods/ 前缀项 → 下载前跳过，匹配该文件可能的全部名字（每个下载链接的文件名、
-  #                  其百分号解码形式、manifest path 名），所以 %2b 与 + 两种写法都能命中
-  #   其余项       → 只作用于解压阶段（overrides 里的相对路径，如 kubejs/client_scripts/**）
+  # The only place for file-name rules (ignoreProject no longer handles file names):
+  #   entries with a mods/ prefix -> skipped before downloading, matched against every possible name of the
+  #                                  file (each download link's file name, its percent-decoded form and the
+  #                                  manifest path name), so both %2b and + spellings hit the same file
+  #   all other entries           -> extraction stage only (overrides-relative paths, e.g. kubejs/client_scripts/**)
   ignoreFiles:
     - mods/Overrides.txt
     - mods/optifine*.jar
