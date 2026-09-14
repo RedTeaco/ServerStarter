@@ -67,8 +67,8 @@
 示例：
 
 ```bash
-java -jar serverstarter-2.5.1.jar
-java -jar serverstarter-2.5.1.jar install
+java -jar serverstarter-<ver>.jar
+java -jar serverstarter-<ver>.jar install
 ```
 
 ## 配置
