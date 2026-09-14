@@ -66,8 +66,8 @@
 Example:
 
 ```bash
-java -jar serverstarter-<ver>.jar
-java -jar serverstarter-<ver>.jar install
+java -jar serverstarter-<version>.jar
+java -jar serverstarter-<version>.jar install
 ```
 
 ## Configuration
