@@ -58,8 +58,14 @@ class ZipExtractor(
                     val name = entry.name
 
                     // special manifest treatment
-                    if (manifestEntryName != null && name == manifestEntryName)
-                        zis.writeToFile(File(basePath, name))
+                    if (manifestEntryName != null && name == manifestEntryName) {
+                        val manifestTarget = ZipPathSafety.resolveInside(File(basePath), name)
+                        if (manifestTarget == null) {
+                            LOGGER.warn("Skipping unsafe zip entry (escapes the install directory): $name")
+                        } else {
+                            zis.writeToFile(manifestTarget)
+                        }
+                    }
 
                     // overrides 前缀剥离；null 表示全量解压（纯 zip 格式）
                     val relPath = if (overridesPrefix != null) {
@@ -70,12 +76,18 @@ class ZipExtractor(
 
                     // relPath 为空串（如 overrides/ 根目录条目）时跳过
                     if (relPath != null && relPath.isNotEmpty()) {
+                        // 防 ZipSlip：越界条目（../、绝对路径、盘符）一律跳过
+                        val safeTarget = ZipPathSafety.resolveInside(File(basePath), relPath)
+
                         when {
                             pathMatchers.any { it.matches(Paths.get(relPath)) } ->
                                 LOGGER.info("Skipping $relPath as it is on the ignore List.", true)
 
+                            safeTarget == null ->
+                                LOGGER.warn("Skipping unsafe zip entry (escapes the install directory): $name")
+
                             !name.endsWith("/") -> {
-                                val outfile = File(basePath, relPath)
+                                val outfile = safeTarget
                                 LOGGER.info("Copying zip entry to = $outfile", true)
 
                                 outfile.parentFile?.mkdirs()
@@ -84,7 +96,7 @@ class ZipExtractor(
                             }
 
                             else -> {
-                                val newFolder = File(basePath, relPath)
+                                val newFolder = safeTarget
                                 if (newFolder.exists())
                                     FileUtils.moveDirectory(newFolder, File(oldFiles, relPath))
 
