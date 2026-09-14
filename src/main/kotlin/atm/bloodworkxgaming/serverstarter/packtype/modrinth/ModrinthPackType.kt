@@ -95,8 +95,8 @@ open class ModrinthPackType(private val configFile: ConfigFile, internetManager:
 
     @Throws(IOException::class)
     override fun postProcessing() {
-        // ① 解析 modrinth.index.json，收集存活 mods/ 条目
-        //    （有序候选链接 + 完整身份：Modrinth projectId / CF 项目 ID / CF 文件 ID / 候选文件名）
+        // ① 解析 modrinth.index.json，收集存活 mods/ 文件（url / fileName / projectId / index 的 env.server）
+        //    （现由 ModrinthIndexManifest 完成；每条目带有序候选链接 + 完整身份，见该对象 KDoc）
         val json = InputStreamReader(FileInputStream(File(basePath + "modrinth.index.json")), "utf-8").use { reader ->
             JsonParser.parseReader(reader).asJsonObject
         }
@@ -107,6 +107,8 @@ open class ModrinthPackType(private val configFile: ConfigFile, internetManager:
         //    - ignoreProject：平台身份（Modrinth 项目 ID/slug、CurseForge 项目 ID/文件 ID）
         //    - ignoreFiles：文件名（mods/ 前缀项参与下载阶段，见 FileIgnoreRules）
         val ignoreProject = buildIgnoreProjectMatcher(entries)
+        // constructs the ignore list（ignoreFiles 中 mods/ 前缀项 → shouldSkip 钩子）
+        // （已收敛到 FileIgnoreRules，并与身份规则一起在查询 API 之前应用）
         val fileRuleMatchers = FileIgnoreRules.downloadMatchers(configFile.install.ignoreFiles)
         LOGGER.info("ignoreFiles download-stage rules: ${fileRuleMatchers.size} matcher(s) from ${configFile.install.ignoreFiles.size} entry(s)")
 
@@ -293,10 +295,13 @@ open class ModrinthPackType(private val configFile: ConfigFile, internetManager:
     }
 
     /**
-     * 单个下载链接 → Modrinth projectId（base62，大小写敏感）。
+     * url: modrinth.index.json 中的 url。
+     * 用于取出下载链接中的 projectId（base62，如 AANobbMI），后续用于从平台获取模组信息
+     * 以判定是否是 client-only mod。URL 不含 "data/" 段或提取段为空白时返回 null
+     * （调用方 fail-safe 保留下载并 warn）。
      *
-     * 历史实现要求链接里含 `data/` 且直接 `substringAfter`；现在委托 [ModFileIdentity]，
-     * 兼容 `cdn.modrinth.com` / `cdn-raw.modrinth.com` 等子域，非 Modrinth 链接返回 null。
+     * 现委托 [ModFileIdentity]（兼容 cdn / cdn-raw 等子域），行为与上述契约一致；
+     * 另有 [extractProjectId] 的数组重载用于「CF 链接在前、Modrinth 链接在后」的 mrpack。
      */
     fun extractProjectId(url: String): String? = ModFileIdentity.modrinthProjectId(url)
 
@@ -307,7 +312,6 @@ open class ModrinthPackType(private val configFile: ConfigFile, internetManager:
     fun extractProjectId(downloads: Collection<String>): String? =
             downloads.firstNotNullOfOrNull { ModFileIdentity.modrinthProjectId(it) }
 
-    /** postProcessing 阶段单个 mods/ 文件的工作条目见 [ModrinthIndexManifest.Entry]。 */
     companion object {
         /** CurseForge `POST /v1/mods/files` 单次请求的 fileId 上限（保守分块，避免超长请求体）。 */
         private const val CURSE_FILE_QUERY_CHUNK = 500

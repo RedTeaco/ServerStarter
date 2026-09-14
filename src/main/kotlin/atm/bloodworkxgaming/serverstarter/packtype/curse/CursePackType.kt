@@ -349,7 +349,8 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
         }
         LOGGER.info("Mods to download: $urls", true)
 
-        // ignoreFiles 的下载阶段规则（唯一实现在 FileIgnoreRules；非 mods/ 前缀项只影响解压阶段）
+        // constructs the ignore list（ignoreFiles 中 mods/ 前缀项 → shouldSkip 钩子）
+        // （唯一实现在 FileIgnoreRules；非 mods/ 前缀项只影响解压阶段）
         val ignoreMatchers = FileIgnoreRules.downloadMatchers(configFile.install.ignoreFiles)
         ModDownloader(basePath, internetManager).downloadAll(urls) { modName ->
             FileIgnoreRules.firstMatch(ignoreMatchers, setOf(modName)) != null

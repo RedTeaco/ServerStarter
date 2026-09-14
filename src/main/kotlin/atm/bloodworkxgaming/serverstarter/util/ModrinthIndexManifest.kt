@@ -18,7 +18,7 @@ import kotlin.collections.ArrayList
  */
 object ModrinthIndexManifest {
 
-    /** 一个待处理的 `mods/` 条目。 */
+    /** postProcessing 阶段单个 mods/ 文件的工作条目（url 与 index 侧信息）。 */
     data class Entry(
             /** 有序候选下载链接（第一个优先，失败按序回退）。 */
             val urls: List<String>,
@@ -45,6 +45,7 @@ object ModrinthIndexManifest {
                 continue
             }
 
+            // env.server == "unsupported" 预过滤（ResourcePack/ShaderPack 等）；
             // null 安全读取：env 缺失 / server 键缺失时按"无 index 判定"处理，不抛异常
             val serverEnv = obj.get("env")?.takeIf { it.isJsonObject }?.asJsonObject
                     ?.get("server")?.takeIf { it.isJsonPrimitive }?.asString

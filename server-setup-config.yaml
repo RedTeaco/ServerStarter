@@ -41,16 +41,15 @@ install:
   installerArguments:
     - "--installServer"
 
-  # Download source (in-process installation through a mirror):
-  #   mojang  - default. Official direct connection, keeps the original --installServer subprocess flow
-  #   bmclapi - install in-process through the BMCLAPI mirror: download the installer, parse it, download
-  #             every file from the mirror and run the processors (no installer subprocess; falls back to
-  #             --installServer automatically if the mirror installation fails)
+  # 下载源（镜像站进程内安装）：
+  #   mojang  - 默认。官方直连，走原 --installServer 子进程安装（原行为）
+  #   bmclapi - 通过 BMCLAPI 镜像站进程内完成安装：下载安装器→解析→镜像下载全部文件→执行 processors
+  #              （不运行安装器子进程；镜像安装失败会自动回退 --installServer）
   downloadSource: mojang
 
-  # Mirror apiRoot override (optional, only used with downloadSource: bmclapi):
-  # an empty value (~ / null / "") uses https://bmclapi2.bangbang93.com; an OpenBMCLAPI node may be used
-  # Example: mirrorUrl: "https://bmclapi.example.com"
+  # 镜像站 apiRoot 覆盖（可选，仅 downloadSource: bmclapi 时生效）：
+  # 空值（~ / null / ""）使用 https://bmclapi2.bangbang93.com；可填 OpenBMCLAPI 节点地址
+  # 例: mirrorUrl: "https://bmclapi.example.com"
   mirrorUrl: ~
 
   # Link to where the file where the modpack can be distributed
