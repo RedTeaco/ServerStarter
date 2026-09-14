@@ -8,6 +8,7 @@ import atm.bloodworkxgaming.serverstarter.packtype.ManifestVersions
 import atm.bloodworkxgaming.serverstarter.util.ModDownloader
 import atm.bloodworkxgaming.serverstarter.util.ZipExtractor
 import atm.bloodworkxgaming.serverstarter.util.ApiVerdict
+import atm.bloodworkxgaming.serverstarter.util.FileIgnoreRules
 import atm.bloodworkxgaming.serverstarter.util.ModrinthIdentityLookup
 import com.google.gson.Gson
 import com.google.gson.JsonParser
@@ -16,9 +17,7 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
 import java.io.InputStreamReader
-import java.nio.file.FileSystems
 import java.nio.file.PathMatcher
-import java.nio.file.Paths
 import java.util.*
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.zip.ZipFile
@@ -350,28 +349,10 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
         }
         LOGGER.info("Mods to download: $urls", true)
 
-        // constructs the ignore list（ignoreFiles 中 mods/ 前缀项 → shouldSkip 钩子）
-//        val ignorePatterns = ArrayList<Pattern>()
-//        for (ignoreFile in configFile.install.ignoreFiles) {
-//            if (ignoreFile.startsWith("mods/")) {
-//                ignorePatterns.add(Pattern.compile(ignoreFile.substring(ignoreFile.lastIndexOf('/' + 1))))
-//            }
-//        }
-//
-//        ModDownloader(basePath, internetManager).downloadAll(urls) { modName ->
-//            ignorePatterns.any { it.matcher(modName).matches() }
-//        }
-        val ignoreMatchers = ArrayList<PathMatcher>()
-        for (ignoreFile in configFile.install.ignoreFiles) {
-            if (ignoreFile.startsWith("mods/")) {
-                val raw = ignoreFile.removePrefix("mods/")
-                val spec = if (raw.startsWith("glob:") || raw.startsWith("regex:")) raw else "glob:$raw"
-                ignoreMatchers.add(FileSystems.getDefault().getPathMatcher(spec))
-            }
-        }
+        // ignoreFiles 的下载阶段规则（唯一实现在 FileIgnoreRules；非 mods/ 前缀项只影响解压阶段）
+        val ignoreMatchers = FileIgnoreRules.downloadMatchers(configFile.install.ignoreFiles)
         ModDownloader(basePath, internetManager).downloadAll(urls) { modName ->
-            val path = Paths.get(modName)
-            ignoreMatchers.any { it.matches(path) }
+            FileIgnoreRules.firstMatch(ignoreMatchers, setOf(modName)) != null
         }
     }
 }

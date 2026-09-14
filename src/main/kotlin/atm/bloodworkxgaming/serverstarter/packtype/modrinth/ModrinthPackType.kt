@@ -6,6 +6,7 @@ import atm.bloodworkxgaming.serverstarter.config.ConfigFile
 import atm.bloodworkxgaming.serverstarter.packtype.AbstractZipbasedPackType
 import atm.bloodworkxgaming.serverstarter.packtype.ManifestVersions
 import atm.bloodworkxgaming.serverstarter.util.ApiVerdict
+import atm.bloodworkxgaming.serverstarter.util.FileIgnoreRules
 import atm.bloodworkxgaming.serverstarter.util.IgnoreProjectMatcher
 import atm.bloodworkxgaming.serverstarter.util.ModDownloader
 import atm.bloodworkxgaming.serverstarter.util.ModFileIdentity
@@ -18,9 +19,7 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
 import java.io.InputStreamReader
-import java.nio.file.FileSystems
 import java.nio.file.PathMatcher
-import java.nio.file.Paths
 import java.util.concurrent.Callable
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
@@ -104,15 +103,27 @@ open class ModrinthPackType(private val configFile: ConfigFile, internetManager:
         LOGGER.info("manifest JSON Object: $json", true)
         val entries = ModrinthIndexManifest.parse(json)
 
-        // ② ignoreProject：解析规则（必要时联网解析 Modrinth slug / CurseForge 项目 ID）后剔除命中条目
+        // ② 忽略规则统一在查询 API 之前应用，且各自只有一个入口：
+        //    - ignoreProject：平台身份（Modrinth 项目 ID/slug、CurseForge 项目 ID/文件 ID）
+        //    - ignoreFiles：文件名（mods/ 前缀项参与下载阶段，见 FileIgnoreRules）
         val ignoreProject = buildIgnoreProjectMatcher(entries)
+        val fileRuleMatchers = FileIgnoreRules.downloadMatchers(configFile.install.ignoreFiles)
+        LOGGER.info("ignoreFiles download-stage rules: ${fileRuleMatchers.size} matcher(s) from ${configFile.install.ignoreFiles.size} entry(s)")
+
         val keptEntries = ArrayList<ModrinthIndexManifest.Entry>(entries.size)
         for (entry in entries) {
             if (ignoreProject.matches(entry.identity)) {
                 LOGGER.warn("Ignoring mod by ignoreProject: ${entry.fileName} (${entry.identity.describe()})")
-            } else {
-                keptEntries.add(entry)
+                continue
             }
+
+            val matchedName = FileIgnoreRules.firstMatch(fileRuleMatchers, entry.identity.fileNames)
+            if (matchedName != null) {
+                LOGGER.info("Skipping ignored mod by ignoreFiles: ${entry.fileName} (matched $matchedName)")
+                continue
+            }
+
+            keptEntries.add(entry)
         }
 
         // ③ 并行查询各 project 的环境信息（8 线程 + projectId 去重缓存；查询失败 → null，不缓存）
@@ -179,20 +190,8 @@ open class ModrinthPackType(private val configFile: ConfigFile, internetManager:
             }
         }
 
-        // constructs the ignore list（ignoreFiles 中 mods/ 前缀项 → shouldSkip 钩子）
-        val ignoreMatchers = ArrayList<PathMatcher>()
-        for (ignoreFile in configFile.install.ignoreFiles) {
-            if (ignoreFile.startsWith("mods/")) {
-                val raw = ignoreFile.removePrefix("mods/")
-                val spec = if (raw.startsWith("glob:") || raw.startsWith("regex:")) raw else "glob:$raw"
-                ignoreMatchers.add(FileSystems.getDefault().getPathMatcher(spec))
-            }
-        }
-
-        ModDownloader(basePath, internetManager).downloadTargets(targets) { modName ->
-            val path = Paths.get(modName)
-            ignoreMatchers.any { it.matches(path) }
-        }
+        // 下载：忽略规则已在 ② 应用（身份 + 文件名），此处不再重复过滤
+        ModDownloader(basePath, internetManager).downloadTargets(targets)
     }
 
     /**
@@ -204,7 +203,7 @@ open class ModrinthPackType(private val configFile: ConfigFile, internetManager:
                 configFile.install.getFormatSpecificSettingOrDefault<List<Any>>("ignoreProject", null))
 
         if (spec.isEmpty) return IgnoreProjectMatcher.build(spec)
-        LOGGER.info("ignoreProject entries: modrinthIdOrSlug=${spec.modrinthIdOrSlug}, curseProjectIds=${spec.curseProjectIds}, curseFileIds=${spec.curseFileIds}, namePatterns=${spec.nameMatchers.size}")
+        LOGGER.info("ignoreProject entries: modrinthIdOrSlug=${spec.modrinthIdOrSlug}, curseProjectIds=${spec.curseProjectIds}, curseFileIds=${spec.curseFileIds}")
 
         // Modrinth：规范 ID 直接字面量比较；slug（或无法与 URL 中的 ID 对上）需要一次 API 解析
         val knownModrinthIds = entries.mapNotNull { it.identity.modrinthProjectId }.toSet()
