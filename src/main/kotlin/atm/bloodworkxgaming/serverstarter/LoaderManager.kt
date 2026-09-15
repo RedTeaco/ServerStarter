@@ -7,11 +7,7 @@ import atm.bloodworkxgaming.serverstarter.config.ConfigFile
 import atm.bloodworkxgaming.serverstarter.mirror.core.InstallerZip
 import atm.bloodworkxgaming.serverstarter.mirror.core.LibraryDownloadTask
 import atm.bloodworkxgaming.serverstarter.mirror.download.DownloadProviders
-import atm.bloodworkxgaming.serverstarter.mirror.installer.ForgeInstaller
-import atm.bloodworkxgaming.serverstarter.mirror.installer.InstallerJsonExtractor
-import atm.bloodworkxgaming.serverstarter.mirror.installer.ModLoaderInstaller
-import atm.bloodworkxgaming.serverstarter.mirror.installer.NeoForgeInstaller
-import atm.bloodworkxgaming.serverstarter.mirror.installer.VersionMismatchException
+import atm.bloodworkxgaming.serverstarter.mirror.installer.*
 import atm.bloodworkxgaming.serverstarter.util.ByteProgressReporter
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -26,7 +22,6 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.*
-import kotlin.collections.ArrayList
 import kotlin.concurrent.thread
 import kotlin.math.max
 
@@ -85,7 +80,8 @@ class LoaderManager(private val configFile: ConfigFile, private val internetMana
                 try {
                     Thread.sleep(10_000)
                 } catch (e: InterruptedException) {
-                    e.printStackTrace()
+                    Thread.currentThread().interrupt()
+                    LOGGER.error("Interrupted while waiting to restart the server", e)
                 }
             }
 
@@ -122,11 +118,14 @@ class LoaderManager(private val configFile: ConfigFile, private val internetMana
                         .a("Read it at https://account.mojang.com/documents/minecraft_eula before accepting it.")
                 )
 
-                val answer = readLine()
-                if (answer?.trim().equals("true", ignoreCase = true)) {
+                val answer = readln()
+                if (answer.trim().equals("true", ignoreCase = true)) {
                     LOGGER.info("You have accepted the EULA.")
                     lines[2] = "eula=true\n"
-                    FileUtils.writeLines(eulaFile, lines)
+                    eulaFile.writeText(
+                        lines.joinToString(System.lineSeparator(), postfix = System.lineSeparator()),
+                        Charsets.UTF_8
+                    )
                 }
             }
 
@@ -177,7 +176,11 @@ class LoaderManager(private val configFile: ConfigFile, private val internetMana
             val turnsType = object : TypeToken<List<InstallerInfo>>() {}.type
             val installerJson = Gson().fromJson<ArrayList<InstallerInfo>>(sourceInstaller, turnsType)
 
-            return installerJson[0].version
+            return installerJson?.firstOrNull()?.version
+                ?: throw DownloadLoaderException(
+                    "Fabric installer metadata from $installerUrl is empty",
+                    IllegalStateException("No installer version returned by $installerUrl")
+                )
         } catch (e: IOException) {
             LOGGER.error("Problem while installing Loader from $installerUrl", e)
             throw DownloadLoaderException("Problem while installing Loader from $installerUrl", e)
@@ -408,18 +411,23 @@ class LoaderManager(private val configFile: ConfigFile, private val internetMana
                 arrayOf("which", "-a", "java")
             }
             try {
-                val path = Runtime.getRuntime().exec(command )
-                    .inputStream
-                    .bufferedReader()
-                    .readLines()
-                    .firstOrNull { path ->
-                        val text = Runtime.getRuntime().exec(arrayOf(path, "-version"))
-                            .errorStream
-                            .bufferedReader()
-                            .readText()
-                        configFile.launch.supportedJavaVersions
-                            .any { text.contains(Regex("\"(1\\.)?${it}")) }
+                val path = ProcessBuilder(*command).start().let { pathProcess ->
+                    val javaPaths = pathProcess.inputStream.bufferedReader().use { it.readLines() }
+                    pathProcess.waitFor()
+                    pathProcess.outputStream.close()
+                    pathProcess.errorStream.close()
+                    javaPaths
+                }.firstOrNull { path ->
+                    val text = ProcessBuilder(path, "-version").start().let { versionProcess ->
+                        val versionOutput = versionProcess.errorStream.bufferedReader().use { it.readText() }
+                        versionProcess.waitFor()
+                        versionProcess.outputStream.close()
+                        versionProcess.inputStream.close()
+                        versionOutput
                     }
+                    configFile.launch.supportedJavaVersions
+                        .any { text.contains(Regex("\"(1\\.)?${it}")) }
+                }
 
                 if (path == null) {
                     LOGGER.warn("Couldn't find any JVM installation matching the supported versions, falling back to 'java', but this might fail.")

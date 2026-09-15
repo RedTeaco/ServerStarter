@@ -10,7 +10,7 @@ fun processString(s: String): String {
             val res = matchResult.groupValues.getOrNull(0) ?: continue
             val inner = matchResult.groupValues.getOrNull(1) ?: continue
 
-            str = str.replace(res, System.getenv(inner) ?: throw java.lang.Exception("There is no Environment Variable '$inner'"))
+            str = str.replace(res, System.getenv(inner) ?: throw IllegalStateException("There is no Environment Variable '$inner'"))
         }
 
         return str

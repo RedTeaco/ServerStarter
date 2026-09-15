@@ -80,12 +80,12 @@ object ClientOnlyModFilter {
      *
      * @param apiVerdicts 平台 API 下载阶段的 CF 三态判定（文件名 → ApiVerdict）；
      *                   仅 curse 来源填充，modrinth/zip/本地文件缺省（按 TOML 规则独断）。
-     * @param input 用户输入读取函数（默认 readLine），测试可注入脚本化输入。
+     * @param input 用户输入读取函数（默认 readlnOrNull），测试可注入脚本化输入。
      */
     fun removeClientOnlyMods(
             modsDir: File,
             apiVerdicts: Map<String, ApiVerdict> = emptyMap(),
-            input: () -> String? = ::readLine
+            input: () -> String? = ::readlnOrNull
     ) {
         val files = modsDir.listFiles()
         if (files == null) {

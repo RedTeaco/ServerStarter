@@ -1,17 +1,18 @@
 plugins {
     id 'java'
-    id "org.jetbrains.kotlin.jvm" version "2.0.21"
-    id "com.github.johnrengelman.shadow" version "7.0.0"
+    id "org.jetbrains.kotlin.jvm" version "2.4.20"
+    id "com.gradleup.shadow" version "9.6.1"
     id "com.github.breadmoirai.github-release" version "2.5.2"
-    id "com.github.ben-manes.versions" version "0.39.0"
+    id "io.github.ben-manes.versions" version "0.63.0"
 }
 
 group = 'tk.redteaco'
 version = '2.5.3'
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_1_8
-    targetCompatibility = JavaVersion.VERSION_1_8
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(8)
+    }
 }
 
 repositories {
@@ -24,23 +25,24 @@ repositories {
 }
 
 dependencies {
-    testImplementation  group: 'junit', name: 'junit', version: '4.13.2'
+    testImplementation  'junit:junit:4.13.2'
 
-    implementation  group: 'org.yaml', name: 'snakeyaml', version: '2.2'
+    implementation  'org.yaml:snakeyaml:2.2'
 
-    implementation  group: 'commons-io', name: 'commons-io', version: '2.14.0'
+    implementation  'commons-io:commons-io:2.14.0'
     implementation  'com.squareup.okhttp3:okhttp:4.9.3'
 
-    implementation  group: 'com.google.code.gson', name: 'gson', version: '2.9.1'
+    implementation  'com.google.code.gson:gson:2.9.1'
 
     implementation ("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
 
     // https://mvnrepository.com/artifact/org.fusesource.jansi/jansi
-    implementation  group: 'org.fusesource.jansi', name: 'jansi', version: '2.3.4'
+    implementation  'org.fusesource.jansi:jansi:2.3.4'
 }
 
 shadowJar {
-    setArchiveClassifier("")
+    archiveClassifier.set("")
+    duplicatesStrategy = DuplicatesStrategy.INCLUDE
 }
 
 jar {
@@ -53,13 +55,12 @@ jar {
 }
 
 processResources {
+    def projectVersion = project.version
     filesMatching('version.properties') {
-        expand(version: project.version)
+        expand(version: projectVersion)
     }
-    inputs.property('version', project.version)
+    inputs.property('version', projectVersion)
 }
-
-compileJava.options.encoding = 'UTF-8'
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
@@ -153,11 +154,5 @@ tasks.register('depsize') {
                     out << "${String.format(formatStr, (it.length() / 1024))} kb\n"
                 }
         println(out)
-    }
-}
-
-tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
-    compilerOptions {
-        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8
     }
 }

@@ -68,10 +68,7 @@ class InternetManager(private val configFile: ConfigFile) {
                     .build()
 
                 val r = try {
-                    httpClient.newCall(req).execute().use {
-                        it.isSuccessful
-                        true
-                    }
+                    httpClient.newCall(req).execute().use { it.isSuccessful }
                 } catch (ex: IOException) {
                     false
                 }

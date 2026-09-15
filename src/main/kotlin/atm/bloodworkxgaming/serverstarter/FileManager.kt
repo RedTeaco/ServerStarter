@@ -11,15 +11,16 @@ import java.net.MalformedURLException
 import java.net.URI
 import java.net.URISyntaxException
 import java.net.URL
+import java.util.*
 
 class FileManager(private val configFile: ConfigFile, private val internetManager: InternetManager) {
 
     fun installAdditionalFiles() {
         LOGGER.info("Starting to installing Additional Files")
-        val fallbackList = mutableListOf<AdditionalFile>()
+        val fallbackList = Collections.synchronizedList(ArrayList<AdditionalFile>())
         configFile.install.additionalFiles.parallelStream().forEach { file -> handleAdditionalFile(file, fallbackList) }
 
-        val failList = mutableListOf<AdditionalFile>()
+        val failList = Collections.synchronizedList(ArrayList<AdditionalFile>())
         fallbackList.parallelStream().forEach { file -> handleAdditionalFile(file, failList) }
         if (failList.isNotEmpty()) {
             throw RuntimeException("Could not download all additional files! [$failList]")

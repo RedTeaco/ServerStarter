@@ -62,7 +62,7 @@ class ServerStarter(args: Array<String>) {
         private fun readConfig(): ConfigFile {
             val yaml = Yaml(CustomConstructor(ConfigFile::class.java), rep, options)
 
-            val file: ConfigFile
+            val file: ConfigFile?
 
             try {
                 file = File("server-setup-config.yaml").inputStream().use { yaml.load(it) }
