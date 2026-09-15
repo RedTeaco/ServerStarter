@@ -72,7 +72,8 @@ tasks.register('copyJar', Copy) {
     dependsOn build
 
 
-    from file("$buildDir/libs/serverstarter-${version}.jar")
+//    from file("$buildDir/libs/ServerStarter-${version}.jar")
+    from tasks.shadowJar.archiveFile
     into file("$buildDir/dist/serverstarter-$version/")
 }
 
