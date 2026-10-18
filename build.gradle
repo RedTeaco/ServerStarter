@@ -7,7 +7,7 @@ plugins {
 }
 
 group = 'tk.redteaco'
-version = '2.5.4'
+version = '2.5.5'
 
 // 归档名统一小写：发布包内是 serverstarter-<版本>.jar，startserver.bat / startserver.sh 与
 // GitHub release 资产名（copyJar / releaseAssets）都按这个名字找。
