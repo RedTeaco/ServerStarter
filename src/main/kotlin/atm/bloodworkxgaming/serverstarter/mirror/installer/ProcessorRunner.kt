@@ -68,7 +68,9 @@ class ProcessorRunner(
                 throw ProcessorExecutionException("Failed to start processor process: ${processor.jar}", e)
             }
             if (exitCode != 0) {
-                throw ProcessorExecutionException("processor exit code $exitCode: ${processor.jar}")
+                // 带上 installertools 的任务名，否则日志里只会看到同一个 jar 坐标，分不清是哪个 processor
+                val task = processor.args.firstOrNull { !it.startsWith("--") && !it.startsWith("{") } ?: "<no task>"
+                throw ProcessorExecutionException("processor exit code $exitCode: ${processor.jar} ($task)")
             }
             // i. outputs 校验：不符 → 删该文件 + 抛异常
             verifyOutputs(resolvedOutputs, afterRun = true)

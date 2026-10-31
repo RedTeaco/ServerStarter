@@ -181,7 +181,7 @@ class ServerStarter(args: Array<String>) {
      */
     private fun resolvePackFormat(internetManager: InternetManager): ResolvedPackFormat {
         if (!isAutoPackFormat(config.install.modpackFormat) || config.install.modpackUrl.isEmpty()) {
-            return ResolvedPackFormat(config.install.modpackFormat, null)
+            return resolveExplicitPackFormat()
         }
 
         val zip = PackObtainer.obtain(
@@ -203,6 +203,54 @@ class ServerStarter(args: Array<String>) {
         }
         config.install.modpackFormat = detected
         return ResolvedPackFormat(detected, zip, inspection)
+    }
+
+    /**
+     * 显式配置了 `modpackFormat` 时走这里：格式以配置为准，但**仍然看一眼本地包的内容**。
+     *
+     * 启动器导出的实例目录（清单在 `flame/manifest.json`、游戏目录已展开成 `minecraft/`）和
+     * "重新打包多套了一层"的包，清单路径与解压前缀都和包型默认值不同。照默认 `overrides/`
+     * 前缀去解压，一个文件都取不出来，但日志只会打印每个 entry 然后说"Done unzipping the files."
+     * ——整台服务器装完是空的（2.5.8 在真实整合包上的故障）。
+     */
+    private fun resolveExplicitPackFormat(): ResolvedPackFormat {
+        val configured = config.install.modpackFormat
+        val localPack = localPackFile() ?: return ResolvedPackFormat(configured, null)
+        val inspection = try {
+            PackFormatDetector.inspect(localPack)
+        } catch (e: IOException) {
+            LOGGER.warn("Could not inspect ${localPack.name} (${e.message}); keeping the configured format '$configured' as is")
+            return ResolvedPackFormat(configured, null)
+        }
+        if (!inspection.nestedManifest && !inspection.instanceExport) {
+            return ResolvedPackFormat(configured, localPack, inspection)
+        }
+        if (!inspection.format.equals(configured, ignoreCase = true)) {
+            LOGGER.warn("modpackFormat is '$configured' but ${localPack.name} looks like '${inspection.format}' " +
+                    "(manifest at ${inspection.manifestEntry}, game files under ${inspection.overridesPrefix}). " +
+                    "Keeping the configured format; set modpackFormat: auto if the install ends up empty.")
+            return ResolvedPackFormat(configured, localPack)
+        }
+        if (inspection.instanceExport) {
+            LOGGER.warn("The pack is a launcher instance export: manifest at ${inspection.manifestEntry}, " +
+                    "game directory is ${inspection.overridesPrefix}. Extracting with that prefix instead of overrides/.")
+        } else {
+            LOGGER.info("Manifest is nested at ${inspection.manifestEntry}; extracting with prefix ${inspection.overridesPrefix}")
+        }
+        return ResolvedPackFormat(configured, localPack, inspection)
+    }
+
+    /** 显式配置格式时能嗅探的本地包（`./.zip` / `file://`）；网络包返回 null，不去提前下载。 */
+    private fun localPackFile(): File? = try {
+        when {
+            config.install.modpackUrl == "./.zip" ->
+                PackObtainer.findPackIn(File("").absoluteFile, config.install.modpackFormat)
+            config.install.modpackUrl.startsWith("file://") -> File(config.install.modpackUrl.substring(7))
+            else -> null
+        }
+    } catch (e: IOException) {
+        LOGGER.warn("Could not look at the local modpack file (${e.message})")
+        null
     }
 
     fun startLoading() {
@@ -299,10 +347,14 @@ fun main(args: Array<String>) {
 
     } catch (e: InitException) {
         ServerStarter.LOGGER.error(e.message)
+        // 失败时不要以 0 退出：安装器/脚本据此判断成功与否（装失败却返回 0 会让上层以为装好了）
+        exitProcess(1)
     } catch (e: DownloadLoaderException) {
         ServerStarter.LOGGER.error("Stopping the process as downloading the ModLoader failed", e)
+        exitProcess(1)
     } catch (e: Throwable) {
         ServerStarter.LOGGER.error("Some uncaught error happened.", e)
+        exitProcess(1)
     }
 }
 

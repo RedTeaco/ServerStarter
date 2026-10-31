@@ -35,8 +35,15 @@ class ZipExtractor(
         private val moveModsFolderFirst: Boolean = true,
         private val rethrowOnError: Boolean = true
 ) {
+    /**
+     * 解压整合包，返回真正写进磁盘的文件数。
+     *
+     * 返回 0 通常意味着 [overridesPrefix] 与包内容不匹配（例如包是启动器实例导出、游戏目录在
+     * `minecraft/` 下，却按默认的 `overrides/` 前缀解压）：条目会全部被跳过，旧实现照样打印
+     * "Done unzipping the files."，装完是一台空服务器。
+     */
     @Throws(IOException::class)
-    fun extract(file: File) {
+    fun extract(file: File): Int {
         // delete old installer folder
         FileUtils.deleteDirectory(oldFiles)
 
@@ -50,6 +57,8 @@ class ZipExtractor(
         }
 
         LOGGER.info("Starting to unzip files.")
+        var extractedEntries = 0
+        val topLevelDirs = sortedSetOf<String>()
         // unzip start
         try {
             ZipInputStream(FileInputStream(file)).use { zis ->
@@ -58,6 +67,8 @@ class ZipExtractor(
                 while (entry != null) {
                     LOGGER.info("Entry in zip: $entry", true)
                     val name = entry.name
+                    val topSlash = name.indexOf('/')
+                    if (topSlash > 0) topLevelDirs.add(name.substring(0, topSlash))
 
                     // special manifest treatment
                     if (manifestEntryName != null && name == manifestEntryName) {
@@ -95,6 +106,7 @@ class ZipExtractor(
                                 outfile.parentFile?.mkdirs()
 
                                 zis.writeToFile(outfile)
+                                extractedEntries++
                             }
 
                             else -> {
@@ -117,6 +129,14 @@ class ZipExtractor(
                 throw e
         }
 
-        LOGGER.info("Done unzipping the files.")
+        if (extractedEntries == 0) {
+            val prefix = overridesPrefix ?: "<none>"
+            val topLevel = if (topLevelDirs.isEmpty()) "<no sub directories>"
+            else topLevelDirs.joinToString(", ") { "$it/" }
+            LOGGER.warn("${file.name}: nothing was extracted (extraction prefix '$prefix', top level entries: $topLevel). " +
+                    "The pack content does not match the expected layout; set modpackFormat: auto or fix overrides prefix.")
+        }
+        LOGGER.info("Done unzipping the files, $extractedEntries file(s) extracted.")
+        return extractedEntries
     }
 }

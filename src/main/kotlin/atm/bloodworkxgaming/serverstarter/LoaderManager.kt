@@ -178,22 +178,37 @@ class LoaderManager(private val configFile: ConfigFile, private val internetMana
                     installForge(basePath, url, installerPath, installerArguments)
                 }
             } else {
-                try {
+                // 官方源失败时自动再走一次镜像（bmclapi），与上面「镜像失败 → 官方」对称。
+                // 安装器以非 0 退出码结束（常见：mojmaps 等下载被墙）同样算失败，不能当成装好了。
+                var officialError: Exception? = null
+                val officialSucceeded = try {
                     installForge(basePath, url, installerPath, installerArguments)
                 } catch (e: Exception) {
-                    // 官方源失败时自动再走一次镜像（bmclapi），与上面「镜像失败 → 官方」对称。
-                    // 镜像安装不支持老式 fat installer，那种情况下会再抛出原始错误。
-                    LOGGER.warn("Failed to install the loader from the official source (${e.message}), retrying through the BMCLAPI mirror")
+                    officialError = e
+                    false
+                }
+                if (officialSucceeded) {
+                    true
+                } else {
+                    LOGGER.warn("Failed to install the loader from the official source " +
+                            "(${officialError?.message ?: "installer exit code != 0"}), retrying through the BMCLAPI mirror")
                     try {
                         mirrorInstall(basePath, url, loaderVersion, mcVersion)
                         true
                     } catch (mirrorError: Exception) {
                         LOGGER.error("Mirror fallback failed as well (${mirrorError.message}), giving up")
-                        throw e
+                        throw officialError ?: InitException(
+                                "Loader installation failed: the official installer did not finish successfully and the BMCLAPI mirror failed too (${mirrorError.message})",
+                                mirrorError)
                     }
                 }
             }
 
+        if (!result) {
+            // 不写 lock、不写 EULA、直接中止：装失败却标成已安装，下次启动会跳过安装并去启动一个不存在的服务器
+            throw InitException("Loader installation failed (see the installer output above); " +
+                    "the server was NOT marked as installed and will not be started")
+        }
         lockFile.loaderInstalled = true
         lockFile.loaderVersion = loaderVersion
         lockFile.mcVersion = mcVersion
@@ -270,7 +285,13 @@ class LoaderManager(private val configFile: ConfigFile, private val internetMana
                 .start()
 
 
-            installer.waitFor()
+            val exitCode = installer.waitFor()
+            if (exitCode != 0) {
+                // 老代码不看退出码：安装器失败（例如 DOWNLOAD_MOJMAPS 被墙）也会返回 true，
+                // 于是 lock 里被标成 loaderInstalled 并直接启动一个缺文件的服务器
+                LOGGER.error("The loader installer exited with code $exitCode, the loader is NOT installed")
+                return false
+            }
             LOGGER.info("Done installing loader, deleting installer!")
             installerPath.delete()
         } catch (e: IOException) {
@@ -414,6 +435,7 @@ class LoaderManager(private val configFile: ConfigFile, private val internetMana
                     }
                 }
 
+            warnAboutMissingArgsFiles(arguments)
             LOGGER.info("Using arguments: $arguments", true)
             LOGGER.info("Starting Loader, output incoming")
             LOGGER.info("For output of this check the server log", true)
@@ -431,6 +453,36 @@ class LoaderManager(private val configFile: ConfigFile, private val internetMana
             LOGGER.error("Error while starting the server", e)
         }
 
+    }
+
+    /**
+     * Forge / NeoForge 的 `@libraries/.../<os>_args.txt` 启动参数：文件不存在时 JVM 只打印一行
+     * "Error: Could not find or load main class @..." 就退出，日志里很难看出是路径写错了
+     * （最常见的是配置里留着另一个 loader 的 neoforged / minecraftforge 路径）。
+     * 这里提前告警，并列出实际存在的 args 文件。
+     */
+    private fun warnAboutMissingArgsFiles(arguments: List<String>) {
+        val installRoot = File(configFile.install.normalizedInstallPath)
+        arguments.filter { it.startsWith("@") }.forEach { arg ->
+            val target = File(installRoot, arg.substring(1).removePrefix("./"))
+            if (target.isFile) return@forEach
+            val available = try {
+                File(installRoot, "libraries/net").walkTopDown()
+                        .filter { it.isFile && it.name.endsWith("_args.txt") }
+                        .map { "@" + it.relativeTo(installRoot).invariantSeparatorsPath }
+                        .take(6)
+                        .toList()
+            } catch (e: Exception) {
+                emptyList()
+            }
+            val hint = if (available.isEmpty()) {
+                "No *_args.txt exists under libraries/net, the loader install probably did not finish."
+            } else {
+                "Args files that do exist: " + available.joinToString(", ")
+            }
+            LOGGER.warn("The start command references '$arg' but ${target.absolutePath} does not exist; " +
+                    "the server will exit immediately. $hint")
+        }
     }
 
     /**
