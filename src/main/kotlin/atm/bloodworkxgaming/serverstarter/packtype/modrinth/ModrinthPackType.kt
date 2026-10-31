@@ -9,6 +9,7 @@ import atm.bloodworkxgaming.serverstarter.util.ApiVerdict
 import atm.bloodworkxgaming.serverstarter.util.FileIgnoreRules
 import atm.bloodworkxgaming.serverstarter.util.IgnoreProjectMatcher
 import atm.bloodworkxgaming.serverstarter.util.ModDownloader
+import atm.bloodworkxgaming.serverstarter.util.PackProvidedMods
 import atm.bloodworkxgaming.serverstarter.util.ModFileIdentity
 import atm.bloodworkxgaming.serverstarter.util.ModrinthEnvironmentVerdict
 import atm.bloodworkxgaming.serverstarter.util.ModrinthIndexManifest
@@ -153,20 +154,42 @@ open class ModrinthPackType(private val configFile: ConfigFile, internetManager:
         // ④ 单线程逐文件判定：构建下载列表 + 记录平台判定
         // （apiVerdictsByFileMutable 非线程安全，必须在并行查询全部结束后写入）
         val targets = ArrayList<ModDownloader.DownloadTarget>()
+
+        // 下载去重：overrides 解压出来的 mods/ 里已经带了的文件不再下载。
+        // 比对两个名字——mrpack 的 path（mods/xxx.jar，即解压后的落盘名）与 url 里的文件名可能不同——
+        // 再加上清单 sha1/sha512 的内容比对（同一文件被改名时也能认出来，避免装成两份）。
+        // 包内 jar 与下载 jar 一视同仁：安装末尾的 ClientOnlyModFilter 照旧扫描整个 mods/ 删除客户端模组。
+        val present = packProvidedMods()
+        var providedByPack = 0
+
+        /** 包里已有 → 记录并跳过；否则加入下载列表。返回是否加入下载列表。 */
+        fun queueDownload(entry: ModrinthIndexManifest.Entry): Boolean {
+            val pathName = entry.path.substringAfterLast('/').substringAfterLast('\\')
+            val existing = present.find(entry.fileName, entry.sha1, entry.sha512)
+                    ?: if (pathName != entry.fileName) present.find(pathName, entry.sha1, entry.sha512) else null
+            if (existing != null) {
+                providedByPack++
+                PackProvidedMods.logSkipped(existing, entry.fileName, entry.sha1, entry.sha512)
+                return false
+            }
+            targets.add(ModDownloader.DownloadTarget(entry.urls, entry.fileName, sha1 = entry.sha1, sha512 = entry.sha512))
+            return true
+        }
+
         for (entry in keptEntries) {
             val fileName = entry.fileName
             val projectId = entry.identity.modrinthProjectId
 
             if (projectId == null) {
                 LOGGER.warn("No Modrinth project id in any download link of ${entry.path} (${entry.identity.describe()}), keeping without API check: $fileName")
-                targets.add(ModDownloader.DownloadTarget(entry.urls, fileName, sha1 = entry.sha1, sha512 = entry.sha512))
+                queueDownload(entry)
                 continue
             }
 
             val environments = environmentCache[projectId]
             if (environments == null) {
                 LOGGER.warn("Modrinth API lookup failed for project $projectId, keeping (fail-safe): $fileName")
-                targets.add(ModDownloader.DownloadTarget(entry.urls, fileName, sha1 = entry.sha1, sha512 = entry.sha512))
+                queueDownload(entry)
                 continue
             }
 
@@ -185,14 +208,18 @@ open class ModrinthPackType(private val configFile: ConfigFile, internetManager:
                 ApiVerdict.DUAL -> {
                     apiVerdictsByFileMutable[fileName] = verdict
                     LOGGER.info("Keeping mod: $fileName (Modrinth API environment=${environments.joinToString()})")
-                    targets.add(ModDownloader.DownloadTarget(entry.urls, fileName, sha1 = entry.sha1, sha512 = entry.sha512))
+                    queueDownload(entry)
                 }
                 else -> {
                     // verdict == null 且 environments 非空（singleplayer_only / unknown）：保留但不记录判定
                     LOGGER.warn("No environment info for project $projectId, keeping without verdict: $fileName")
-                    targets.add(ModDownloader.DownloadTarget(entry.urls, fileName, sha1 = entry.sha1, sha512 = entry.sha512))
+                    queueDownload(entry)
                 }
             }
+        }
+
+        if (providedByPack > 0) {
+            LOGGER.info("$providedByPack mod(s) already shipped by the pack in mods/, download skipped")
         }
 
         // 下载：忽略规则已在 ② 应用（身份 + 文件名），此处不再重复过滤

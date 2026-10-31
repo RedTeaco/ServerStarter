@@ -6,6 +6,7 @@ import atm.bloodworkxgaming.serverstarter.ServerStarter
 import atm.bloodworkxgaming.serverstarter.config.ConfigFile
 import atm.bloodworkxgaming.serverstarter.util.ApiVerdict
 import atm.bloodworkxgaming.serverstarter.util.PackObtainer
+import atm.bloodworkxgaming.serverstarter.util.PackProvidedMods
 import java.io.File
 import java.io.IOException
 import java.nio.file.FileSystems
@@ -20,6 +21,33 @@ abstract class AbstractZipbasedPackType(private val configFile: ConfigFile, prot
      */
     protected val apiVerdictsByFileMutable = mutableMapOf<String, ApiVerdict>()
     override val apiVerdictsByFile: Map<String, ApiVerdict> get() = apiVerdictsByFileMutable
+
+    /**
+     * 当前 `mods/` 里整合包自带的 jar 快照。
+     *
+     * 必须在 `handleZip()` 之后调用（overrides 解压完才看得到包内文件）：下载阶段用它做去重，
+     * 包里已经带了的模组不再重复下载。早于解压调用会得到空快照，导致全部照旧下载。
+     */
+    protected fun packProvidedMods(): PackProvidedMods.Snapshot = PackProvidedMods.scan(File(basePath, "mods"))
+
+    /**
+     * 下载去重：整合包已自带同名（忽略大小写）或同内容（清单 sha1/sha512 一致）的文件时跳过下载。
+     *
+     * 仅影响"要不要下载"，不影响客户端模组判定——包里自带的 jar 与下载的 jar 一样，
+     * 安装末尾统一由 ClientOnlyModFilter 扫描 `mods/`。
+     *
+     * @return true 表示已由包内文件满足，调用方不要再加入下载列表
+     */
+    protected fun skipIfAlreadyInPack(
+            present: PackProvidedMods.Snapshot,
+            fileName: String,
+            sha1: String?,
+            sha512: String?
+    ): Boolean {
+        val existing = present.find(fileName, sha1, sha512) ?: return false
+        PackProvidedMods.logSkipped(existing, fileName, sha1, sha512)
+        return true
+    }
 
     /**
      * ① 下载（或本地定位）整合包 zip。

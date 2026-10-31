@@ -258,6 +258,11 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
             emptySet()
         }
 
+        // 下载去重：overrides 解压出来的 mods/ 里已经有的文件（同名忽略大小写，或清单 sha1 内容一致）不再下载。
+        // 注意包内 jar 与下载 jar 一视同仁，安装末尾的 ClientOnlyModFilter 仍会扫描整个 mods/ 删除客户端模组。
+        val present = packProvidedMods()
+        var providedByPack = 0
+
         modsInformation.data.forEach { mod ->
             // 已确认 client-only（Modrinth 哈希校验）→ 不下载、不记录判定
             if (mod.fileName in skipFileNames) return@forEach
@@ -266,9 +271,17 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
             apiVerdictsByFileMutable[mod.fileName] = apiVerdict(mod.gameVersions)
             // CF API 的 hashes 里 algo=1 即 sha1（见 CurseForge API 文档），下载后用于校验
             val sha1 = mod.hashes.firstOrNull { it.algo == 1 }?.value
+            // 包里已经带了这个文件 → 跳过下载（CF 只提供 sha1，故 sha512 传 null）
+            if (skipIfAlreadyInPack(present, mod.fileName, sha1, null)) {
+                providedByPack++
+                return@forEach
+            }
             val url = mod.downloadUrl
                     ?: "https://edge.forgecdn.net/files/${mod.id / 1000}/${mod.id % 1000}/${mod.fileName}"
             targets.add(ModDownloader.DownloadTarget(listOf(url), mod.fileName, sha1 = sha1))
+        }
+        if (providedByPack > 0) {
+            LOGGER.info("$providedByPack mod(s) already shipped by the pack in mods/, download skipped")
         }
         LOGGER.info("Mods to download: $targets", true)
 
