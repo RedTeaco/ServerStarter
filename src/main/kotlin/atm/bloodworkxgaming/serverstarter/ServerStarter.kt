@@ -7,6 +7,7 @@ import atm.bloodworkxgaming.serverstarter.packtype.AbstractZipbasedPackType
 import atm.bloodworkxgaming.serverstarter.packtype.IPackType
 import atm.bloodworkxgaming.serverstarter.util.AppVersion
 import atm.bloodworkxgaming.serverstarter.util.ClientOnlyModFilter
+import atm.bloodworkxgaming.serverstarter.util.ConsoleOutput
 import atm.bloodworkxgaming.serverstarter.util.ConfigKeyValidator
 import atm.bloodworkxgaming.serverstarter.util.PackFormatDetector
 import atm.bloodworkxgaming.serverstarter.util.PackObtainer
@@ -157,8 +158,11 @@ class ServerStarter(args: Array<String>) {
         }
     }
 
-    /** 格式解析结果：最终生效的包型名 + 自动识别时已经取到的包文件（显式配置时为 null）。 */
-    private data class ResolvedPackFormat(val format: String, val preObtainedPack: File?)
+    /** 格式解析结果：最终生效的包型名 + 自动识别时已经取到的包文件与识别细节（显式配置时为 null）。 */
+    private data class ResolvedPackFormat(
+            val format: String,
+            val preObtainedPack: File?,
+            val inspection: PackFormatDetector.Inspection? = null)
 
     /**
      * `modpackFormat` 是否交给自动识别：空 / `auto` / `detect`（大小写与空白无关）。
@@ -186,10 +190,19 @@ class ServerStarter(args: Array<String>) {
                 internetManager = internetManager,
                 cleanUrl = PackObtainer::cursePageDownloadUrl,
                 preferredFormat = null)
-        val detected = PackFormatDetector.detectOrZip(zip)
+        // 清单可能在子目录里（重新打包多套一层 / 启动器导出的实例目录），inspect 会一并给出路径与前缀
+        val inspection = PackFormatDetector.inspect(zip)
+        val detected = inspection.format
         LOGGER.info("modpackFormat '${config.install.modpackFormat}' -> auto-detected '$detected' from ${zip.name}")
+        if (inspection.instanceExport) {
+            LOGGER.warn("检测到启动器导出的实例目录：清单在 ${inspection.manifestEntry}，" +
+                    "游戏目录已展开为 ${inspection.overridesPrefix}；将把该目录内容作为 overrides 解压，并按清单下载模组")
+        } else if (inspection.nestedManifest) {
+            LOGGER.info("清单位于包内子目录 ${inspection.manifestEntry}（重新打包多套了一层），" +
+                    "按该路径读取，解压前缀 ${inspection.overridesPrefix}")
+        }
         config.install.modpackFormat = detected
-        return ResolvedPackFormat(detected, zip)
+        return ResolvedPackFormat(detected, zip, inspection)
     }
 
     fun startLoading() {
@@ -210,6 +223,12 @@ class ServerStarter(args: Array<String>) {
                     ?: throw InitException("Unknown pack format given in config, shutting down.")
             resolved.preObtainedPack?.let { zip ->
                 (packtype as? AbstractZipbasedPackType)?.preObtainedPack = zip
+            }
+            resolved.inspection?.let { inspection ->
+                (packtype as? AbstractZipbasedPackType)?.apply {
+                    manifestEntryNameOverride = inspection.manifestEntry
+                    overridesPrefixOverride = inspection.overridesPrefix
+                }
             }
             if (config.install.modpackFormat == "modrinth"){
                 LOGGER.info("Client-only mods are filtered automatically.")
@@ -268,6 +287,9 @@ fun main(args: Array<String>) {
         println("jansi couldn't be installed in this terminal (e.g. due to aarch64 not being supported)\n" +
                 "Future terminal messages will have no color.")
     }
+    // 必须在任何日志输出之前：按控制台真实编码重建 stdout/stderr，
+    // 否则 jansi 会用 JVM 默认字符集(UTF-8) 输出，而中文 cmd.exe 按 GBK 解码 → 中文乱码
+    ConsoleOutput.install()
 
     try {
         val starter = ServerStarter(args)

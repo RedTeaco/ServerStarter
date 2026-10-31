@@ -50,6 +50,16 @@ abstract class AbstractZipbasedPackType(private val configFile: ConfigFile, prot
     var preObtainedPack: File? = null
 
     /**
+     * 自动识别格式时，清单可能不在包根目录（重新打包多套一层 `pack/`，或启动器导出的
+     * `flame/manifest.json` + `minecraft/`）。识别结果注入这里，包型据此读取清单并剥离前缀。
+     * 显式配置格式时保持 null（沿用各包型的默认值）。
+     */
+    var manifestEntryNameOverride: String? = null
+
+    /** 与 [manifestEntryNameOverride] 配套的解压前缀（`overrides/` / `minecraft/` / `<dir>/`）。 */
+    var overridesPrefixOverride: String? = null
+
+    /**
      * ② 从 zip 解析最终生效版本（Q3：manifest 优先、yaml 兜底）。
      *
      * 各子类通过 [readManifestVersions] 提供 manifest 原始版本；纯 zip 格式无 manifest，

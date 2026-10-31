@@ -29,6 +29,8 @@ class ZipExtractor(
         private val oldFiles: File,
         private val pathMatchers: List<PathMatcher>,
         private val manifestEntryName: String? = null,
+        /** 清单落到 basePath 下的文件名；清单在子目录时用它写到根目录（如 flame/manifest.json → manifest.json） */
+        private val manifestTargetName: String? = null,
         private val overridesPrefix: String? = "overrides/",
         private val moveModsFolderFirst: Boolean = true,
         private val rethrowOnError: Boolean = true
@@ -59,7 +61,7 @@ class ZipExtractor(
 
                     // special manifest treatment
                     if (manifestEntryName != null && name == manifestEntryName) {
-                        val manifestTarget = ZipPathSafety.resolveInside(File(basePath), name)
+                        val manifestTarget = ZipPathSafety.resolveInside(File(basePath), manifestTargetName ?: name)
                         if (manifestTarget == null) {
                             LOGGER.warn("Skipping unsafe zip entry (escapes the install directory): $name")
                         } else {

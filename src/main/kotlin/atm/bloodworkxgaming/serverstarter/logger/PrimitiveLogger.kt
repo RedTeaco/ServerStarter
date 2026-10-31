@@ -1,5 +1,6 @@
 package atm.bloodworkxgaming.serverstarter.logger
 
+import atm.bloodworkxgaming.serverstarter.util.ConsoleOutput
 import okio.Okio
 import okio.buffer
 import okio.sink
@@ -49,7 +50,7 @@ class PrimitiveLogger(outputFile: File) {
             }
 
             if (!logOnly) {
-                print(m)
+                printToConsole(m)
             }
         }
     }
@@ -65,7 +66,7 @@ class PrimitiveLogger(outputFile: File) {
                 error("Error while logging!", e)
             }
 
-            print(m)
+            printToConsole(m)
         }
     }
 
@@ -87,7 +88,16 @@ class PrimitiveLogger(outputFile: File) {
                 e.printStackTrace()
             }
 
-            print(m)
+            printToConsole(m)
+        }
+    }
+
+    /** 终端不支持 ANSI 时打印纯文本，否则 cmd.exe 会把 `[0m` 原样漏成 `[m`。 */
+    private fun printToConsole(message: String) {
+        if (ConsoleOutput.ansiSupported) {
+            print(message)
+        } else {
+            print(ConsoleOutput.stripAnsi(message))
         }
     }
 

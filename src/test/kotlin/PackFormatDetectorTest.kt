@@ -202,4 +202,50 @@ class PackFormatDetectorTest {
 
         assertEquals(pack.absolutePath, obtained.absolutePath)
     }
+
+    @Test
+    fun `清单在子目录的 wrapper 包也能识别并给出解压前缀`() {
+        val pack = zip("wrapped.zip",
+                "PackName/manifest.json" to """{"minecraft":{"version":"1.20.1","modLoaders":[{"id":"forge-47.4.20"}]},"files":[]}""",
+                "PackName/overrides/config/x.toml" to "")
+
+        val inspection = PackFormatDetector.inspect(pack)
+        assertEquals(PackFormatDetector.FORMAT_CURSE, inspection.format)
+        assertEquals("PackName/manifest.json", inspection.manifestEntry)
+        assertEquals("PackName/overrides/", inspection.overridesPrefix)
+        assertTrue(inspection.nestedManifest)
+        assertFalse(inspection.instanceExport)
+    }
+
+    @Test
+    fun `启动器实例导出（flame manifest + minecraft 目录）识别为 curse 并用 minecraft 作为前缀`() {
+        val pack = zip("instance-export.zip",
+                "flame/manifest.json" to """{"minecraft":{"version":"1.20.1","modLoaders":[{"id":"forge-47.4.20"}]},"files":[]}""",
+                "flame/overrides.txt" to "x",
+                "lunaui/state.json" to "{}",
+                "minecraft/config/x.toml" to "a=1")
+
+        val inspection = PackFormatDetector.inspect(pack)
+        assertEquals(PackFormatDetector.FORMAT_CURSE, inspection.format)
+        assertEquals("flame/manifest.json", inspection.manifestEntry)
+        assertEquals("minecraft/", inspection.overridesPrefix)
+        assertTrue(inspection.instanceExport)
+    }
+
+    @Test
+    fun `子目录里的同名 manifest 没有 minecraft 段时仍回落为 zip`() {
+        val pack = zip("wrapped-plain.zip",
+                "SomeDir/manifest.json" to """{"name":"not a curse manifest"}""",
+                "SomeDir/config/x.toml" to "")
+
+        val inspection = PackFormatDetector.inspect(pack)
+        assertEquals(PackFormatDetector.FORMAT_ZIP, inspection.format)
+        assertNull(inspection.manifestEntry)
+    }
+
+    @Test
+    fun `ANSI 剥离只去掉转义序列`() {
+        assertEquals("hello", atm.bloodworkxgaming.serverstarter.util.ConsoleOutput
+                .stripAnsi("[31mhello[0m"))
+    }
 }

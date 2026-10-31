@@ -39,8 +39,9 @@ open class ModrinthPackType(private val configFile: ConfigFile, internetManager:
                 basePath = basePath,
                 oldFiles = oldFiles,
                 pathMatchers = pathMatchers,
-                manifestEntryName = "modrinth.index.json",
-                overridesPrefix = "overrides/",
+                manifestEntryName = manifestEntryNameOverride ?: "modrinth.index.json",
+                overridesPrefix = overridesPrefixOverride ?: "overrides/",
+                manifestTargetName = "modrinth.index.json",
                 moveModsFolderFirst = true,
                 rethrowOnError = true
         ).extract(file)
@@ -58,7 +59,7 @@ open class ModrinthPackType(private val configFile: ConfigFile, internetManager:
     @Throws(IOException::class)
     override fun readManifestVersions(zip: File): ManifestVersions? {
         ZipFile(zip).use { zipFile ->
-            val entry = zipFile.getEntry("modrinth.index.json") ?: return null
+            val entry = zipFile.getEntry(manifestEntryNameOverride ?: "modrinth.index.json") ?: return null
             zipFile.getInputStream(entry).use { input ->
                 val json = JsonParser.parseReader(InputStreamReader(input, "utf-8")).asJsonObject
                 LOGGER.info("manifest JSON Object: $json", true)

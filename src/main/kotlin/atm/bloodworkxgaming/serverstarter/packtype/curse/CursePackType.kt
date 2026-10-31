@@ -37,8 +37,9 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
                 basePath = basePath,
                 oldFiles = oldFiles,
                 pathMatchers = pathMatchers,
-                manifestEntryName = "manifest.json",
-                overridesPrefix = "overrides/",
+                manifestEntryName = manifestEntryNameOverride ?: "manifest.json",
+                overridesPrefix = overridesPrefixOverride ?: "overrides/",
+                manifestTargetName = "manifest.json",
                 moveModsFolderFirst = true,
                 rethrowOnError = true
         ).extract(file)
@@ -50,7 +51,7 @@ open class CursePackType(private val configFile: ConfigFile, internetManager: In
     @Throws(IOException::class)
     override fun readManifestVersions(zip: File): ManifestVersions? {
         ZipFile(zip).use { zipFile ->
-            val entry = zipFile.getEntry("manifest.json") ?: return null
+            val entry = zipFile.getEntry(manifestEntryNameOverride ?: "manifest.json") ?: return null
             zipFile.getInputStream(entry).use { input ->
                 val json = JsonParser.parseReader(InputStreamReader(input, "utf-8")).asJsonObject
                 LOGGER.info("manifest JSON Object: $json", true)
