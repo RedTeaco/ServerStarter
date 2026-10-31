@@ -397,6 +397,9 @@ class LoaderManager(private val configFile: ConfigFile, private val internetMana
             // for >= 1.17 it has to add the classes to the classpath
             arguments.addAll(
                 configFile.launch.startCommand
+                    // 旧示例配置在 startCommand 下留过一个空列表项（"-"），YAML 会解析成 null；
+                    // 直接 map 会在 replacePlaceholders 的非空参数上抛 NPE，这里先过滤掉
+                    .filterNotNull()
                     .map(::replacePlaceholders)
                     .map { it.replace("{{@startFile@}}", launchJar.absolutePath) }
             )
